@@ -19,7 +19,7 @@ log = logging.getLogger("CheckinBot")
 # Google Sheets Spalten in DB_drvr (0-basiert, Header in Zeile 7)
 COL_PSN        = 1   # B – PSN-Name
 COL_NICK       = 9   # J – Server-Nickname
-COL_DISCORD_ID = 84  # DC – Discord-ID (Spalte 85 = DC)
+COL_DISCORD_ID = 106  # DC – Discord-ID (Spalte 107, 0-basiert = 106)
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
