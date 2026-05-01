@@ -45,18 +45,20 @@ def get_active_season_id() -> int | None:
 
 def get_next_monday_race() -> dict | None:
     """Gibt das Rennen zurück, das am nächsten Montag stattfindet."""
+    from datetime import timedelta
     today = datetime.now(BERLIN).date()
-    # Nächsten Montag berechnen
     days_until_monday = (7 - today.weekday()) % 7
     if days_until_monday == 0:
         days_until_monday = 7
-    next_monday = today + __import__("datetime").timedelta(days=days_until_monday)
+    next_monday = today + timedelta(days=days_until_monday)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT rc.*, w.name_de AS weather_name, w.category AS weather_category
+                SELECT rc.*, s.season,
+                       w.name_de AS weather_name, w.category AS weather_category
                 FROM race_calendar rc
+                LEFT JOIN seasons s ON s.id = rc.season_id
                 LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
                 WHERE rc.race_date = %s AND rc.is_pause = 0
                 LIMIT 1
@@ -70,8 +72,10 @@ def get_next_future_race() -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT rc.*, w.name_de AS weather_name, w.category AS weather_category
+                SELECT rc.*, s.season,
+                       w.name_de AS weather_name, w.category AS weather_category
                 FROM race_calendar rc
+                LEFT JOIN seasons s ON s.id = rc.season_id
                 LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
                 WHERE rc.race_date > %s AND rc.is_pause = 0
                 ORDER BY rc.race_date ASC
