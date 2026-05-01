@@ -440,3 +440,62 @@ def get_track_overall_stats(track_id: int) -> dict:
                 "total_races": total_races,
                 "record": record,
             }
+
+
+# ─────────────────────────────────────────────
+# State-Persistenz
+# ─────────────────────────────────────────────
+
+def save_state_value(key: str, value: str):
+    """Speichert einen State-Wert in der DB."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO checkin_state (key_name, value)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = NOW()
+            """, (key, str(value)))
+
+
+def load_state_value(key: str, default=None) -> str | None:
+    """Lädt einen State-Wert aus der DB."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT value FROM checkin_state WHERE key_name = %s
+            """, (key,))
+            row = cur.fetchone()
+            return row["value"] if row else default
+
+
+def save_state(state: dict):
+    """Speichert den kompletten Bot-State in der DB."""
+    for key, value in state.items():
+        if value is not None:
+            save_state_value(key, str(value))
+        else:
+            save_state_value(key, "")
+
+
+def load_state() -> dict:
+    """Lädt den kompletten Bot-State aus der DB."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT key_name, value FROM checkin_state")
+            rows = cur.fetchall()
+            return {row["key_name"]: row["value"] for row in rows}
+
+
+def get_race_by_id(race_id: int) -> dict | None:
+    """Gibt ein Rennen aus race_calendar anhand der ID zurück."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT rc.*, s.season,
+                       w.name_de AS weather_name, w.category AS weather_category
+                FROM race_calendar rc
+                LEFT JOIN seasons s ON s.id = rc.season_id
+                LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
+                WHERE rc.id = %s
+            """, (race_id,))
+            return cur.fetchone()

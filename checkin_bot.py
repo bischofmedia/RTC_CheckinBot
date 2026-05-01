@@ -425,6 +425,12 @@ async def send_sunday_msg(session):
     state["sunday_msg_sent"] = True
     state["grid_locked"] = True
     log.info(f"Sunday-Lock: {grid_count} Grids, {driver_count} Fahrer.")
+    from db import save_state
+    save_state({
+        "sunday_msg_sent": True,
+        "grid_locked": True,
+        "last_grid_count": grid_count,
+    })
 
 
 # ─────────────────────────────────────────────
@@ -694,6 +700,13 @@ async def tuesday_reset(session):
     state["sunday_msg_sent"] = False
     state["grid_locked"] = False
     state["last_grid_count"] = 0
+    from db import save_state
+    save_state({
+        "sunday_lock": False,
+        "sunday_msg_sent": False,
+        "grid_locked": False,
+        "last_grid_count": 0,
+    })
 
     # ── 3. Nächstes Rennen laden ─────────────────────────────────────────
     race = get_next_monday_race()
@@ -916,17 +929,38 @@ async def scan_orga_commands(session):
 # ─────────────────────────────────────────────
 
 async def bootstrap(session):
-    """Initialisierung beim ersten Start."""
-    from db import get_next_monday_race
+    """Initialisierung beim ersten Start – lädt State aus DB."""
+    from db import get_next_monday_race, get_race_by_id, load_state, save_state
 
     log.info("Bootstrap gestartet.")
-    race = get_next_monday_race()
-    if race:
-        state["current_race_id"] = race["id"]
-        state["current_race"] = race
-        log.info(f"Aktives Rennen: {race['track_name']} am {race['race_date']}")
-    else:
-        log.info("Kein Rennen nächsten Montag.")
+
+    # State aus DB laden
+    db_state = load_state()
+
+    # sunday_lock / grid_locked wiederherstellen
+    state["sunday_lock"]     = db_state.get("sunday_lock", "False") == "True"
+    state["sunday_msg_sent"] = db_state.get("sunday_msg_sent", "False") == "True"
+    state["grid_locked"]     = db_state.get("grid_locked", "False") == "True"
+    state["last_grid_count"] = int(db_state.get("last_grid_count", 0))
+
+    # Rennen wiederherstellen
+    saved_race_id = db_state.get("current_race_id")
+    if saved_race_id:
+        race = get_race_by_id(int(saved_race_id))
+        if race:
+            state["current_race_id"] = race["id"]
+            state["current_race"]    = race
+            log.info(f"State wiederhergestellt: {race['track_name']} am {race['race_date']}")
+
+    # Falls kein State → nächstes Rennen laden
+    if not state.get("current_race_id"):
+        race = get_next_monday_race()
+        if race:
+            state["current_race_id"] = race["id"]
+            state["current_race"]    = race
+            log.info(f"Aktives Rennen: {race['track_name']} am {race['race_date']}")
+        else:
+            log.info("Kein Rennen nächsten Montag.")
 
     await update_checkin_message(session)
     log.info("Bootstrap abgeschlossen.")
