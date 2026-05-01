@@ -90,7 +90,8 @@ def get_next_monday_is_pause() -> bool:
     days_until_monday = (7 - today.weekday()) % 7
     if days_until_monday == 0:
         days_until_monday = 7
-    next_monday = today + __import__("datetime").timedelta(days=days_until_monday)
+    from datetime import timedelta
+    next_monday = today + timedelta(days=days_until_monday)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
