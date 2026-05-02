@@ -488,7 +488,7 @@ def get_track_header_stats(track_id: int) -> dict:
             # Schnellste Rennrunde
             cur.execute("""
                 SELECT r.fastest_lap_time, d.psn_name, s.name AS season_name,
-                       gv.game AS game_name, gv.patch AS patch_version
+                       gv.game AS game_name, gv.patch AS patch_version, gv.version_id
                 FROM races r
                 JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
                 JOIN seasons s ON s.season_id = r.season_id

@@ -241,21 +241,19 @@ class CheckinView(discord.ui.View):
 
     @discord.ui.button(label="Anmelden", style=discord.ButtonStyle.success, custom_id="checkin_register")
     async def register(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         response, view = await handle_register(interaction)
         if view:
-            await interaction.followup.send(response, view=view, ephemeral=True)
+            await interaction.response.send_message(response, view=view, ephemeral=True)
         else:
-            await interaction.followup.send(response, ephemeral=True)
+            await interaction.response.send_message(response, ephemeral=True)
 
     @discord.ui.button(label="Abmelden", style=discord.ButtonStyle.danger, custom_id="checkin_unregister")
     async def unregister(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         response, view = await handle_unregister(interaction)
         if view:
-            await interaction.followup.send(response, view=view, ephemeral=True)
+            await interaction.response.send_message(response, view=view, ephemeral=True)
         else:
-            await interaction.followup.send(response, ephemeral=True)
+            await interaction.response.send_message(response, ephemeral=True)
 
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, custom_id="checkin_status")
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -270,9 +268,8 @@ class AboAddView(discord.ui.View):
 
     @discord.ui.button(label="Daueranmeldung", style=discord.ButtonStyle.primary, custom_id="checkin_abo_add")
     async def abo_add(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         response, _ = await handle_abo_add(interaction)
-        await interaction.followup.send(response, ephemeral=True)
+        await interaction.response.send_message(response, ephemeral=True)
 
 
 class AboRemoveView(discord.ui.View):
@@ -281,9 +278,8 @@ class AboRemoveView(discord.ui.View):
 
     @discord.ui.button(label="Dauerabmeldung", style=discord.ButtonStyle.danger, custom_id="checkin_abo_remove")
     async def abo_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
         response, _ = await handle_abo_remove(interaction)
-        await interaction.followup.send(response, ephemeral=True)
+        await interaction.response.send_message(response, ephemeral=True)
 
 
 # ─────────────────────────────────────────────
