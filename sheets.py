@@ -47,13 +47,14 @@ def sync_registrations_to_sheet(race_id: int):
         sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
         ws = sheet.worksheet(os.environ.get("GOOGLE_SHEETS_TAB", "Anmeldungen"))
 
-        # Alte Einträge löschen (ab Zeile 2, Spalte A)
-        last_row = max(len(psn_names) + 1, 50)  # mind. 50 Zeilen leeren
-        ws.batch_clear([f"A2:A{last_row}"])
+        # Apollo-Grabber Format: Fahrerliste in Q1 als newline-getrennter String
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
+        driver_list = "\n".join(r[0] for r in psn_names)
 
-        # Neue Einträge schreiben
-        if psn_names:
-            ws.update(f"A2:A{len(psn_names) + 1}", psn_names)
+        ws.update(range_name="B1", values=[[f"Letzte Änderung:\n{now_str} Uhr"]], value_input_option="USER_ENTERED")
+        ws.update(range_name="Q1", values=[[driver_list]], value_input_option="USER_ENTERED")
 
         from datetime import datetime
         from zoneinfo import ZoneInfo
