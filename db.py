@@ -499,8 +499,8 @@ def get_track_header_stats(track_id: int) -> dict:
             """, (track_id,))
             record = cur.fetchone()
             # Patch-Version formatieren
-            if record and record.get("game_version"):
-                game = "GT Sport" if "Sport" in str(record.get("game_version", "")) else "GT7"
+            if record and record.get("game_name"):
+                game = "GT Sport" if "Sport" in str(record.get("game_name", "")) else "GT7"
                 patch = record.get("patch_version", "")
                 record["game_str"] = f"{game} Patch {patch}" if patch else game
 
