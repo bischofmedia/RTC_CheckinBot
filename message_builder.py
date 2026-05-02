@@ -172,15 +172,12 @@ def _format_log_entry(entry: dict) -> str:
 
 
 def build_log_section(race_id: int) -> str:
-    """Baut den Log-Bereich der Channel-Nachricht als Codeblock."""
+    """Baut den Log-Bereich der Channel-Nachricht."""
     entries = get_log_entries(race_id)
     if not entries:
         return ""
     lines = [_format_log_entry(e) for e in entries]
-    lines = [l for l in lines if l is not None]
-    if not lines:
-        return ""
-    return "```\n" + "\n".join(lines) + "\n```"
+    return "─────────────────────────\n" + "\n".join(lines)
 
 
 
@@ -204,7 +201,7 @@ def build_track_stats_block(race: dict) -> str:
 
     if stats["top_winners"]:
         winners = ", ".join(f"{w['psn_name']} ({w['wins']}×)" for w in stats["top_winners"])
-        lines.append(f"🏆 Meiste Siege: {winners}")
+        lines.append(f"🏆 Mehrfach-Sieger: {winners}")
 
     if stats["top_vehicles"]:
         cars = ", ".join(v["vehicle_name"] for v in stats["top_vehicles"])
@@ -212,7 +209,7 @@ def build_track_stats_block(race: dict) -> str:
 
     if stats.get("record") and stats["record"].get("fastest_lap_time"):
         r = stats["record"]
-        gv = f" ({r['game_version']})" if r.get("game_version") else ""
+        gv = f" ({r['game_str']})" if r.get("game_str") else (f" ({r['game_version']})" if r.get("game_version") else "")
         lines.append(f"⏱️ Rekord: {r['fastest_lap_time']} · {r['psn_name']} · {r['season_name']}{gv}")
 
     return "\n".join(lines)
@@ -330,20 +327,5 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 lines.append(f"🚗 Autos: {cars_str}")
 
         lines.append("")
-
-    # ── Strecken-Gesamtinfo ──────────────────────────────────────────────
-    if track_id:
-        overall = get_track_overall_stats(track_id)
-        lines.append(f"── Strecken-Gesamtinfo ──")
-        lines.append(f"📊 RTC war hier **{overall['total_races']}×**")
-
-        record = overall.get("record")
-        if record and record.get("fastest_lap_time"):
-            lines.append(
-                f"⏱️ Rekord: **{record['fastest_lap_time']}** · "
-                f"{record['psn_name']} · {record.get('season_name', '?')}"
-            )
-        else:
-            lines.append("⏱️ Kein Streckenrekord vorhanden.")
 
     return "\n".join(lines)

@@ -378,18 +378,17 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
             """, (driver_id, track_id))
             race_count = cur.fetchone()["race_count"]
 
-            # Top 3 Ergebnisse (nach Grid-Platz, dann Overall)
+            # Alle Ergebnisse sortiert nach Saison
             cur.execute("""
                 SELECT rr.finish_pos_grid, rr.finish_pos_overall,
                        v.name AS vehicle_name, s.name AS season_name,
-                       r.race_date
+                       s.season_id, r.race_date
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
                 JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
-                ORDER BY rr.finish_pos_grid ASC
-                LIMIT 3
+                ORDER BY s.season_id ASC, r.race_date ASC
             """, (driver_id, track_id))
             top3 = cur.fetchall()
 
@@ -457,7 +456,7 @@ def get_track_header_stats(track_id: int) -> dict:
             """, (track_id,))
             basic = cur.fetchone()
 
-            # Meiste Siege (finish_pos_grid = 1)
+            # Meiste Siege (finish_pos_grid = 1, mind. 2 Siege)
             cur.execute("""
                 SELECT d.psn_name, COUNT(*) AS wins
                 FROM race_results rr
@@ -465,6 +464,7 @@ def get_track_header_stats(track_id: int) -> dict:
                 JOIN drivers d ON d.driver_id = rr.driver_id
                 WHERE r.track_id = %s AND rr.finish_pos_grid = 1
                 GROUP BY rr.driver_id
+                HAVING wins >= 2
                 ORDER BY wins DESC
                 LIMIT 3
             """, (track_id,))
@@ -496,6 +496,10 @@ def get_track_header_stats(track_id: int) -> dict:
                 LIMIT 1
             """, (track_id,))
             record = cur.fetchone()
+            # Patch-Version formatieren
+            if record and record.get("game_version"):
+                game = "GT Sport" if "Sport" in str(record.get("game_version", "")) else "GT7"
+                record["game_str"] = f"{game} Patch {record['game_version']}"
 
             return {
                 "total_races": basic["total_races"] if basic else 0,
