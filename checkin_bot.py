@@ -240,13 +240,19 @@ class CheckinView(discord.ui.View):
     async def register(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         response, view = await handle_register(interaction)
-        await interaction.followup.send(response, view=view, ephemeral=True)
+        if view:
+            await interaction.followup.send(response, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(response, ephemeral=True)
 
     @discord.ui.button(label="Abmelden", style=discord.ButtonStyle.danger, custom_id="checkin_unregister")
     async def unregister(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         response, view = await handle_unregister(interaction)
-        await interaction.followup.send(response, view=view, ephemeral=True)
+        if view:
+            await interaction.followup.send(response, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(response, ephemeral=True)
 
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, custom_id="checkin_status")
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
