@@ -345,16 +345,20 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
         if stats["race_count"] == 0:
             lines.append("Du bist diese Strecke noch nie gefahren.")
         else:
-            code_lines = ["Season    Datum      Pos  Ges  Fahrzeug"]
-            code_lines.append("─" * 52)
+            code_lines = ["Season    Datum      Grid  Pos  Ges   %    Fahrzeug"]
+            code_lines.append("─" * 58)
             for result in stats["top3"]:
                 season = str(result.get("season_name", "?"))[:8].ljust(8)
                 race_date = result.get("race_date", "")
                 date_str = race_date.strftime("%d.%m.%y") if race_date else "?       "
+                grid_id = str(result.get("grid_number", "?")).rjust(4)
                 pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
-                pos_overall = str(result.get("finish_pos_overall", "?")).rjust(4)
+                pos_overall = str(result.get("finish_pos_overall", "?")).rjust(3)
+                pct = result.get("time_percent")
+                pct_str = f"{float(pct)*100:.1f}%" if pct else "  ?  "
+                pct_str = pct_str.rjust(5)
                 vehicle = str(result.get("vehicle_name", "?"))[:18]
-                code_lines.append(f"{season}  {date_str}  {pos_grid}  {pos_overall}  {vehicle}")
+                code_lines.append(f"{season}  {date_str}  {grid_id}  {pos_grid}  {pos_overall}  {pct_str}  {vehicle}")
             lines.append("```\n" + "\n".join(code_lines) + "\n```")
 
     return "\n".join(lines)

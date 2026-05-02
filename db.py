@@ -420,12 +420,14 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
             # Alle Ergebnisse sortiert nach Saison
             cur.execute("""
                 SELECT rr.finish_pos_grid, rr.finish_pos_overall,
+                       g.grid_number, rr.time_percent,
                        v.name AS vehicle_name, s.name AS season_name,
                        s.season_id, r.race_date
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
                 JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
+                LEFT JOIN grids g ON g.grid_id = rr.grid_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
                 ORDER BY s.season_id ASC, r.race_date ASC
             """, (driver_id, track_id))
