@@ -214,12 +214,7 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
             f"{status_emoji} {status_text}\n"
         )
 
-        log_section = build_log_section(race_id)
-        message = header
-        if log_section:
-            message += f"\n{log_section}"
-
-        return message, not closed
+        return header, not closed
 
     # ── Variante B: Pause-Woche ──────────────────────────────────────────
     next_race = get_next_future_race()
