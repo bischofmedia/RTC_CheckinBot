@@ -217,6 +217,13 @@ async def update_checkin_message():
         except discord.NotFound:
             state["checkin_msg_id"] = None
 
+    # Channel leeren vor neuem Post
+    try:
+        async for old_msg in channel.history(limit=50):
+            await old_msg.delete()
+    except Exception as e:
+        log.warning(f"Channel-Bereinigung fehlgeschlagen: {e}")
+
     msg = await channel.send(content=message, view=view)
     _save_msg_id(msg.id)
     log.info(f"Neue Checkin-Nachricht gepostet: {msg.id}")
@@ -250,7 +257,7 @@ class CheckinView(discord.ui.View):
 
 class AboAddView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Daueranmeldung", style=discord.ButtonStyle.primary, custom_id="checkin_abo_add")
     async def abo_add(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -261,7 +268,7 @@ class AboAddView(discord.ui.View):
 
 class AboRemoveView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
 
     @discord.ui.button(label="Dauerabmeldung", style=discord.ButtonStyle.danger, custom_id="checkin_abo_remove")
     async def abo_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
