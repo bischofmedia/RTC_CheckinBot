@@ -55,6 +55,11 @@ def sync_registrations_to_sheet(race_id: int):
         if psn_names:
             ws.update(f"A2:A{len(psn_names) + 1}", psn_names)
 
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        from db import save_state_value
+        sync_ts = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
+        save_state_value("last_sheet_sync", sync_ts)
         log.info(f"Sheet-Sync: {len(psn_names)} Fahrer übertragen.")
 
     except Exception as e:

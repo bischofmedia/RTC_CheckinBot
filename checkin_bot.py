@@ -202,7 +202,11 @@ async def update_checkin_message():
     header, show_buttons = build_channel_message(race_id=race_id, race=race)
     log_text = build_log_section(race_id) if race_id else "–"
 
+    now_str = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M")
+    from db import load_state_value
+    last_sync = load_state_value("last_sheet_sync", "–")
     embed = discord.Embed(description=log_text)
+    embed.set_footer(text=f"Stand: {now_str} | Sync: {last_sync}")
 
     channel = bot.get_channel(CHAN_CHECKIN)
     if not channel:
@@ -241,19 +245,21 @@ class CheckinView(discord.ui.View):
 
     @discord.ui.button(label="Anmelden", style=discord.ButtonStyle.success, custom_id="checkin_register")
     async def register(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         response, view = await handle_register(interaction)
         if view:
-            await interaction.response.send_message(response, view=view, ephemeral=True)
+            await interaction.followup.send(response, view=view, ephemeral=True)
         else:
-            await interaction.response.send_message(response, ephemeral=True)
+            await interaction.followup.send(response, ephemeral=True)
 
     @discord.ui.button(label="Abmelden", style=discord.ButtonStyle.danger, custom_id="checkin_unregister")
     async def unregister(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         response, view = await handle_unregister(interaction)
         if view:
-            await interaction.response.send_message(response, view=view, ephemeral=True)
+            await interaction.followup.send(response, view=view, ephemeral=True)
         else:
-            await interaction.response.send_message(response, ephemeral=True)
+            await interaction.followup.send(response, ephemeral=True)
 
     @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, custom_id="checkin_status")
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
