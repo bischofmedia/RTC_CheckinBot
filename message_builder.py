@@ -159,6 +159,7 @@ def _format_log_entry(entry: dict) -> str:
     elif action == "abgemeldet":
         return f"{weekday} {time_str} 🔴 {name}"
     elif action == "abo_angemeldet":
+        # Nur automatische Dienstags-Anmeldungen zeigen
         return f"{weekday} {time_str} 🟢 {name} (Abo)"
     elif action == "abo_abgemeldet":
         return None  # Nicht im Log anzeigen
@@ -286,7 +287,6 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
     """
     driver_id = driver["driver_id"]
     track_id = race.get("track_id")
-    season_id = get_active_season_id()
 
     lines = []
 
@@ -303,32 +303,27 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
     if abo and not reg:
         lines.append("📋 Du hast eine Daueranmeldung – sie greift ab nächster Woche.")
 
-    lines.append("")
-
     # ── Persönliche Strecken-Statistik ───────────────────────────────────
     if track_id:
         stats = get_driver_track_stats(driver_id, track_id)
-        lines.append(f"── Deine Statistik: **{race.get('track_name', '?')}** ──")
+        lines.append("")
+        lines.append(f"🏎️ Deine Ergebnisse auf **{race.get('track_name', '?')}**:")
 
         if stats["race_count"] == 0:
-            lines.append("🏎️ Du bist diese Strecke noch nie gefahren.")
+            lines.append("Du bist diese Strecke noch nie gefahren.")
         else:
-            lines.append(f"🏎️ **{stats['race_count']}×** hier gefahren")
-
-            medals = ["🥇", "🥈", "🥉"]
-            for i, result in enumerate(stats["top3"]):
-                medal = medals[i] if i < len(medals) else "🏁"
-                pos = result.get("finish_pos_grid", "?")
-                season = result.get("season_name", "?")
-                vehicle = result.get("vehicle_name", "?")
+            lines.append(f"{stats['race_count']}× hier gefahren")
+            # Codeblock mit allen Ergebnissen sortiert nach Season
+            code_lines = ["Season    Datum      Pos  Ges  Fahrzeug"]
+            code_lines.append("─" * 52)
+            for result in stats["top3"]:
+                season = str(result.get("season_name", "?"))[:8].ljust(8)
                 race_date = result.get("race_date", "")
-                date_str = f" · {race_date.strftime('%d.%m.%Y')}" if race_date else ""
-                lines.append(f"{medal} P{pos} · {season}{date_str} · {vehicle}")
-
-            if stats["cars"]:
-                cars_str = ", ".join(stats["cars"])
-                lines.append(f"🚗 Autos: {cars_str}")
-
-        lines.append("")
+                date_str = race_date.strftime("%d.%m.%y") if race_date else "?       "
+                pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
+                pos_overall = str(result.get("finish_pos_overall", "?")).rjust(4)
+                vehicle = str(result.get("vehicle_name", "?"))[:18]
+                code_lines.append(f"{season}  {date_str}  {pos_grid}  {pos_overall}  {vehicle}")
+            lines.append("```\n" + "\n".join(code_lines) + "\n```")
 
     return "\n".join(lines)

@@ -338,19 +338,8 @@ async def handle_register(interaction: discord.Interaction):
     add_registration(race_id, driver_id, source="manual")
     add_log_entry(race_id, driver_id, "warteliste" if on_waitlist else "angemeldet")
 
-    if not TEST_MODE:
-        sync_registrations_to_sheet(race_id)
-
-    await update_checkin_message()
-
-    new_count = get_registration_count(race_id)
-    new_grids = calculate_grids(new_count)
-    if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
-        await send_grid_full_msg(new_grids)
-        state["last_grid_count"] = new_grids
-
+    # Response sofort vorbereiten
     if on_waitlist:
-        await send_waitlist_msg([driver.get("psn_name", "")])
         msg = "✅ Du hast dich angemeldet und stehst auf der Warteliste."
     else:
         msg = "✅ Du hast dich zum Rennen angemeldet."
@@ -359,6 +348,20 @@ async def handle_register(interaction: discord.Interaction):
     if not has_abo(driver_id):
         msg += "\n\n📋 Möchtest du dich dauerhaft anmelden?"
         view = AboAddView()
+
+    # Update im Hintergrund
+    async def _background():
+        if not TEST_MODE:
+            sync_registrations_to_sheet(race_id)
+        await update_checkin_message()
+        new_count = get_registration_count(race_id)
+        new_grids = calculate_grids(new_count)
+        if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
+            await send_grid_full_msg(new_grids)
+            state["last_grid_count"] = new_grids
+        if on_waitlist:
+            await send_waitlist_msg([driver.get("psn_name", "")])
+    asyncio.create_task(_background())
 
     return msg, view
 
@@ -395,18 +398,7 @@ async def handle_unregister(interaction: discord.Interaction):
     action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
     add_log_entry(race_id, driver_id, action)
 
-    if was_on_waitlist and all_regs:
-        waitlist_drivers = all_regs[max_drivers:]
-        if waitlist_drivers:
-            moved_up = waitlist_drivers[0]
-            add_log_entry(race_id, moved_up["driver_id"], "nachgerueckt")
-            await send_moved_up_msg([moved_up.get("psn_name", "")])
-
-    if not TEST_MODE:
-        sync_registrations_to_sheet(race_id)
-
-    await update_checkin_message()
-
+    # Response sofort vorbereiten
     if was_on_waitlist:
         msg = "❌ Du hast dich von der Warteliste abgemeldet."
     else:
@@ -416,6 +408,19 @@ async def handle_unregister(interaction: discord.Interaction):
     if has_abo(driver_id):
         msg += "\n\n📋 Möchtest du auch deine Daueranmeldung beenden?"
         view = AboRemoveView()
+
+    # Update im Hintergrund
+    async def _background():
+        if was_on_waitlist and all_regs:
+            waitlist_drivers = all_regs[max_drivers:]
+            if waitlist_drivers:
+                moved_up = waitlist_drivers[0]
+                add_log_entry(race_id, moved_up["driver_id"], "nachgerueckt")
+                await send_moved_up_msg([moved_up.get("psn_name", "")])
+        if not TEST_MODE:
+            sync_registrations_to_sheet(race_id)
+        await update_checkin_message()
+    asyncio.create_task(_background())
 
     return msg, view
 
