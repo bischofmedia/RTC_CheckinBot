@@ -172,12 +172,15 @@ def _format_log_entry(entry: dict) -> str:
 
 
 def build_log_section(race_id: int) -> str:
-    """Baut den Log-Bereich der Channel-Nachricht."""
+    """Baut den Log-Bereich der Channel-Nachricht als Codeblock."""
     entries = get_log_entries(race_id)
     if not entries:
         return ""
     lines = [_format_log_entry(e) for e in entries]
-    return "─────────────────────────\n" + "\n".join(lines)
+    lines = [l for l in lines if l is not None]
+    if not lines:
+        return ""
+    return "```\n" + "\n".join(lines) + "\n```"
 
 
 
