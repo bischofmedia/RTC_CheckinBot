@@ -204,7 +204,7 @@ def build_track_stats_block(race: dict) -> str:
 
     if stats["top_winners"]:
         winners = ", ".join(f"{w['psn_name']} ({w['wins']}×)" for w in stats["top_winners"])
-        lines.append(f"🏆 Mehrfach-Sieger: {winners}")
+        lines.append(f"🏆 Rekord-Sieger: {winners}")
 
     if stats["top_vehicles"]:
         cars = ", ".join(v["vehicle_name"] for v in stats["top_vehicles"])

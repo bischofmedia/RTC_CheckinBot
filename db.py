@@ -449,11 +449,13 @@ def get_track_header_stats(track_id: int) -> dict:
             # Wie oft gefahren und letzte Saison
             cur.execute("""
                 SELECT COUNT(*) AS total_races, MAX(r.race_date) AS last_date,
-                       s.name AS last_season
+                       (SELECT s2.name FROM seasons s2 
+                        JOIN races r2 ON r2.season_id = s2.season_id 
+                        WHERE r2.track_id = %s 
+                        ORDER BY r2.race_date DESC LIMIT 1) AS last_season
                 FROM races r
-                JOIN seasons s ON s.season_id = r.season_id
                 WHERE r.track_id = %s
-            """, (track_id,))
+            """, (track_id, track_id))
             basic = cur.fetchone()
 
             # Meiste Siege (finish_pos_grid = 1, mind. 2 Siege)
@@ -486,7 +488,7 @@ def get_track_header_stats(track_id: int) -> dict:
             # Schnellste Rennrunde
             cur.execute("""
                 SELECT r.fastest_lap_time, d.psn_name, s.name AS season_name,
-                       gv.game AS game_version
+                       gv.game AS game_name, gv.patch AS patch_version
                 FROM races r
                 JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
                 JOIN seasons s ON s.season_id = r.season_id
@@ -499,7 +501,8 @@ def get_track_header_stats(track_id: int) -> dict:
             # Patch-Version formatieren
             if record and record.get("game_version"):
                 game = "GT Sport" if "Sport" in str(record.get("game_version", "")) else "GT7"
-                record["game_str"] = f"{game} Patch {record['game_version']}"
+                patch = record.get("patch_version", "")
+                record["game_str"] = f"{game} Patch {patch}" if patch else game
 
             return {
                 "total_races": basic["total_races"] if basic else 0,
