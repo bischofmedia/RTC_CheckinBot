@@ -59,9 +59,18 @@ def sync_registrations_to_sheet(race_id: int):
         from datetime import datetime
         from zoneinfo import ZoneInfo
         from db import save_state_value
+        import subprocess
         sync_ts = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
         save_state_value("last_sheet_sync", sync_ts)
         log.info(f"Sheet-Sync: {len(psn_names)} Fahrer übertragen.")
+
+        # Grid-DB-Sync (wie Apollo Grabber)
+        subprocess.Popen(
+            ["python3", "/home/ubuntu/RTC_CheckinBot/sync_grid_to_db.py"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log.info("Grid-DB-Sync gestartet.")
 
     except Exception as e:
         log.error(f"Sheet-Sync fehlgeschlagen: {e}")
