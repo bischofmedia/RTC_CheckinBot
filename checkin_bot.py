@@ -196,10 +196,13 @@ def _save_msg_id(msg_id: int):
 # ─────────────────────────────────────────────
 
 async def update_checkin_message():
-    from message_builder import build_channel_message
+    from message_builder import build_channel_message, build_log_section
     race = state.get("current_race")
     race_id = state.get("current_race_id")
-    message, show_buttons = build_channel_message(race_id=race_id, race=race)
+    header, show_buttons = build_channel_message(race_id=race_id, race=race)
+    log_text = build_log_section(race_id) if race_id else "–"
+
+    embed = discord.Embed(description=log_text)
 
     channel = bot.get_channel(CHAN_CHECKIN)
     if not channel:
@@ -212,7 +215,7 @@ async def update_checkin_message():
     if msg_id:
         try:
             msg = await channel.fetch_message(msg_id)
-            await msg.edit(content=message, view=view)
+            await msg.edit(content=header, embed=embed, view=view)
             return
         except discord.NotFound:
             state["checkin_msg_id"] = None
@@ -224,7 +227,7 @@ async def update_checkin_message():
     except Exception as e:
         log.warning(f"Channel-Bereinigung fehlgeschlagen: {e}")
 
-    msg = await channel.send(content=message, view=view)
+    msg = await channel.send(content=header, embed=embed, view=view)
     _save_msg_id(msg.id)
     log.info(f"Neue Checkin-Nachricht gepostet: {msg.id}")
 

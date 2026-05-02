@@ -34,7 +34,7 @@ def get_active_season_id() -> int | None:
     """Gibt die ID der aktiven Saison zurück."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM seasons WHERE is_active = 1 LIMIT 1")
+            cur.execute("SELECT season_id AS id FROM seasons WHERE is_active = 1 LIMIT 1")
             row = cur.fetchone()
             return row["id"] if row else None
 
