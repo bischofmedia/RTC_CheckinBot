@@ -3,6 +3,7 @@ RTC CheckinBot – message_builder.py
 Baut die Channel-Nachricht und den Status-Button-Text zusammen.
 """
 
+
 import logging
 import os
 from datetime import datetime, timedelta
