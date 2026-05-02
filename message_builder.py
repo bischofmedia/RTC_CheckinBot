@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from db import (
     get_track_header_stats,
+    get_driver_grid_assignment,
+    get_driver_overall_stats,
     get_next_monday_race,
     get_next_future_race,
     get_next_monday_is_pause,
@@ -287,6 +289,7 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
     """
     driver_id = driver["driver_id"]
     track_id = race.get("track_id")
+    season_id = get_active_season_id()
 
     lines = []
 
@@ -303,17 +306,45 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
     if abo and not reg:
         lines.append("📋 Du hast eine Daueranmeldung – sie greift ab nächster Woche.")
 
-    # ── Persönliche Strecken-Statistik ───────────────────────────────────
+    # ── Grid-Einteilung ──────────────────────────────────────────────────
+    if reg:
+        grid = get_driver_grid_assignment(driver_id, race_id)
+        if grid:
+            lines.append("")
+            lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt.")
+            lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
+            if grid.get("streamer_name"):
+                stream_text = f"Dein Streamer ist **{grid['streamer_name']}**"
+                if grid.get("streamer_url"):
+                    stream_text += f" · [Stream]({grid['streamer_url']})"
+                lines.append(stream_text)
+            lines.append("Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
+
+    # ── Rating & Saisonstand ─────────────────────────────────────────────
+    rating = get_driver_current_rating(driver_id)
+    overall = get_driver_overall_stats(driver_id)
+    standings = get_driver_season_standings(driver_id, season_id) if season_id else None
+
+    lines.append("")
+    info_parts = []
+    if rating and rating.get("current_rating"):
+        info_parts.append(f"📈 Rating: **{float(rating['current_rating']):.4f}**")
+    if overall.get("total_races"):
+        info_parts.append(f"🏁 Rennen gesamt: **{overall['total_races']}**")
+    if standings:
+        info_parts.append(f"🏆 Saison-Punkte: **{standings.get('total_points', 0)}** · Rennen: **{standings.get('races_started', 0)}**")
+    for part in info_parts:
+        lines.append(part)
+
+    # ── Strecken-Ergebnisse ──────────────────────────────────────────────
     if track_id:
         stats = get_driver_track_stats(driver_id, track_id)
         lines.append("")
-        lines.append(f"🏎️ Deine Ergebnisse auf **{race.get('track_name', '?')}**:")
+        lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
 
         if stats["race_count"] == 0:
             lines.append("Du bist diese Strecke noch nie gefahren.")
         else:
-            lines.append(f"{stats['race_count']}× hier gefahren")
-            # Codeblock mit allen Ergebnissen sortiert nach Season
             code_lines = ["Season    Datum      Pos  Ges  Fahrzeug"]
             code_lines.append("─" * 52)
             for result in stats["top3"]:

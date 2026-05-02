@@ -333,6 +333,45 @@ def set_grid_override(race_id: int, grid_count: int, discord_id: str):
     log.info(f"Grid-Override für race_id={race_id}: {grid_count} Grids (gesetzt von {discord_id})")
 
 
+
+
+def get_driver_grid_assignment(driver_id: int, race_id: int) -> dict | None:
+    """Gibt die Grid-Einteilung eines Fahrers zurück inkl. Streamer-Info."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # race_id → race_calendar → track/season info
+            # grid_assignments hat keine race_id direkt, aber wir können
+            # über driver_id die aktuelle Einteilung holen
+            cur.execute("""
+                SELECT ga.grid_number, ga.position,
+                       s.name AS streamer_name, s.url AS streamer_url, s.platform
+                FROM grid_assignments ga
+                LEFT JOIN grid_assignments ga_streamer ON ga_streamer.grid_number = ga.grid_number
+                    AND ga_streamer.is_streamer = 1
+                LEFT JOIN streamers s ON s.streamer_id = ga_streamer.streamer_id
+                WHERE ga.driver_id = %s AND ga.is_streamer = 0
+                LIMIT 1
+            """, (driver_id,))
+            return cur.fetchone()
+
+
+def get_driver_overall_stats(driver_id: int) -> dict:
+    """Gibt allgemeine Fahrer-Statistiken zurück."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Gesamtanzahl Rennen
+            cur.execute("""
+                SELECT COUNT(*) AS total_races,
+                       SUM(CASE WHEN finish_pos_grid = 1 THEN 1 ELSE 0 END) AS total_wins
+                FROM race_results
+                WHERE driver_id = %s
+            """, (driver_id,))
+            overall = cur.fetchone()
+
+            return {
+                "total_races": overall["total_races"] if overall else 0,
+            }
+
 # ─────────────────────────────────────────────
 # Standings & Rating (für Status-Button)
 # ─────────────────────────────────────────────
