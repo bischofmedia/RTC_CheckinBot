@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from db import (
+    get_track_header_stats,
     get_next_monday_race,
     get_next_future_race,
     get_next_monday_is_pause,
@@ -154,20 +155,20 @@ def _format_log_entry(entry: dict) -> str:
     action = entry["action"]
 
     if action == "angemeldet":
-        return f"Di {time_str} 🟢 {name}"
+        return f"{weekday} {time_str} 🟢 {name}"
     elif action == "abgemeldet":
         return f"{weekday} {time_str} 🔴 {name}"
     elif action == "abo_angemeldet":
-        return f"{weekday} {time_str} 🟢 {name} *(Dauerabo)*"
+        return f"{weekday} {time_str} 🟢 {name} (Abo)"
     elif action == "abo_abgemeldet":
-        return f"{weekday} {time_str} 🔴 {name} *(Dauerabo aufgehoben)*"
+        return None  # Nicht im Log anzeigen
     elif action == "warteliste":
         return f"{weekday} {time_str} 🟢 → 🟡 {name}"
     elif action == "nachgerueckt":
         return f"{weekday} {time_str} 🟡 → 🟢 {name}"
     elif action == "warteliste_abgemeldet":
         return f"{weekday} {time_str} 🟡 → 🔴 {name}"
-    return f"{weekday} {time_str} ❓ {name}"
+    return None
 
 
 def build_log_section(race_id: int) -> str:
@@ -176,8 +177,43 @@ def build_log_section(race_id: int) -> str:
     if not entries:
         return ""
     lines = [_format_log_entry(e) for e in entries]
-    return "```\n" + "\n".join(lines) + "\n```"
+    return "─────────────────────────\n" + "\n".join(lines)
 
+
+
+def build_track_stats_block(race: dict) -> str:
+    """Baut den Streckenstatistik-Block für den Channel-Header."""
+    track_id = race.get("track_id")
+    if not track_id:
+        return ""
+    try:
+        from db import get_track_header_stats
+        stats = get_track_header_stats(track_id)
+    except Exception:
+        return ""
+
+    if stats["total_races"] == 0:
+        return "📊 RTC fährt diese Strecke zum ersten Mal!"
+
+    lines = []
+    last = f" · zuletzt in {stats['last_season']}" if stats.get("last_season") else ""
+    lines.append(f"📊 RTC war hier {stats['total_races']}×{last}")
+
+    if stats["top_winners"]:
+        winners = ", ".join(f"{w['psn_name']} ({w['wins']}×)" for w in stats["top_winners"])
+        lines.append(f"🏆 Meiste Siege: {winners}")
+
+    if stats["top_vehicles"]:
+        cars = ", ".join(v["vehicle_name"] for v in stats["top_vehicles"])
+        lines.append(f"🚗 Top Fahrzeuge: {cars}")
+
+    if stats.get("record") and stats["record"].get("fastest_lap_time"):
+        r = stats["record"]
+        gv = f" ({r['game_version']})" if r.get("game_version") else ""
+        lines.append(f"⏱️ Rekord: {r['fastest_lap_time']} · {r['psn_name']} · {r['season_name']}{gv}")
+
+    return "
+".join(lines)
 
 # ─────────────────────────────────────────────
 # Channel-Nachricht
@@ -204,14 +240,15 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
         weather_emoji = _weather_emoji(race.get("weather_category", ""))
         weather_text = race.get("weather_name", race.get("weather_code", ""))
 
+        track_stats = build_track_stats_block(race)
         header = (
             f"{test_banner}"
             f"🏁 **Rennen {race['race_number']} · {race['season']}**\n"
             f"📍 {race['track_name']}\n"
             f"🔄 {race['laps']} Runden · 🕐 {race['time_of_day']} · {weather_emoji} {race['weather_code']} · {weather_text}\n"
             f"📅 {_format_date(race['race_date'])} · Lobby öffnet {LOBBY_OPEN} Uhr\n"
-            f"\n"
-            f"{status_emoji} {status_text}\n"
+            + (f"\n{track_stats}\n" if track_stats else "") +
+            f"\n{status_emoji} {status_text}\n"
         )
 
         return header, not closed

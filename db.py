@@ -441,6 +441,70 @@ def get_track_overall_stats(track_id: int) -> dict:
             }
 
 
+
+
+def get_track_header_stats(track_id: int) -> dict:
+    """Gibt erweiterte Streckenstatistiken für den Channel-Header zurück."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Wie oft gefahren und letzte Saison
+            cur.execute("""
+                SELECT COUNT(*) AS total_races, MAX(r.race_date) AS last_date,
+                       s.name AS last_season
+                FROM races r
+                JOIN seasons s ON s.season_id = r.season_id
+                WHERE r.track_id = %s
+            """, (track_id,))
+            basic = cur.fetchone()
+
+            # Meiste Siege (finish_pos_grid = 1)
+            cur.execute("""
+                SELECT d.psn_name, COUNT(*) AS wins
+                FROM race_results rr
+                JOIN races r ON r.race_id = rr.race_id
+                JOIN drivers d ON d.driver_id = rr.driver_id
+                WHERE r.track_id = %s AND rr.finish_pos_grid = 1
+                GROUP BY rr.driver_id
+                ORDER BY wins DESC
+                LIMIT 3
+            """, (track_id,))
+            top_winners = cur.fetchall()
+
+            # Meist genutzte Fahrzeuge
+            cur.execute("""
+                SELECT v.name AS vehicle_name, COUNT(*) AS cnt
+                FROM race_results rr
+                JOIN races r ON r.race_id = rr.race_id
+                JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
+                WHERE r.track_id = %s AND rr.vehicle_id IS NOT NULL
+                GROUP BY rr.vehicle_id
+                ORDER BY cnt DESC
+                LIMIT 3
+            """, (track_id,))
+            top_vehicles = cur.fetchall()
+
+            # Schnellste Rennrunde
+            cur.execute("""
+                SELECT r.fastest_lap_time, d.psn_name, s.name AS season_name,
+                       gv.game AS game_version
+                FROM races r
+                JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
+                JOIN seasons s ON s.season_id = r.season_id
+                LEFT JOIN game_versions gv ON gv.version_id = r.version_id
+                WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL
+                ORDER BY r.fastest_lap_time ASC
+                LIMIT 1
+            """, (track_id,))
+            record = cur.fetchone()
+
+            return {
+                "total_races": basic["total_races"] if basic else 0,
+                "last_season": basic["last_season"] if basic else None,
+                "top_winners": top_winners or [],
+                "top_vehicles": top_vehicles or [],
+                "record": record,
+            }
+
 # ─────────────────────────────────────────────
 # State-Persistenz
 # ─────────────────────────────────────────────
