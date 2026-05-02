@@ -254,14 +254,26 @@ def _build_buttons(show: bool) -> list:
         {
             "type": 1,
             "components": [
-                {"type": 2, "style": 3, "label": "Anmelden",       "custom_id": "checkin_register"},
-                {"type": 2, "style": 4, "label": "Abmelden",       "custom_id": "checkin_unregister"},
-                {"type": 2, "style": 1, "label": "Daueranmeldung", "custom_id": "checkin_abo_add"},
-                {"type": 2, "style": 4, "label": "Dauerabmeldung", "custom_id": "checkin_abo_remove"},
-                {"type": 2, "style": 2, "label": "Status",         "custom_id": "checkin_status"},
+                {"type": 2, "style": 3, "label": "Anmelden",  "custom_id": "checkin_register"},
+                {"type": 2, "style": 4, "label": "Abmelden",  "custom_id": "checkin_unregister"},
+                {"type": 2, "style": 2, "label": "Status",    "custom_id": "checkin_status"},
             ]
         }
     ]
+
+
+def _build_abo_add_button() -> list:
+    """Daueranmeldung-Button für ephemeral Nachricht."""
+    return [{"type": 1, "components": [
+        {"type": 2, "style": 1, "label": "Daueranmeldung", "custom_id": "checkin_abo_add"}
+    ]}]
+
+
+def _build_abo_remove_button() -> list:
+    """Dauerabmeldung-Button für ephemeral Nachricht."""
+    return [{"type": 1, "components": [
+        {"type": 2, "style": 4, "label": "Dauerabmeldung", "custom_id": "checkin_abo_remove"}
+    ]}]
 
 
 # ─────────────────────────────────────────────
@@ -448,17 +460,17 @@ async def handle_register(session, discord_id: str, nickname: str) -> str:
 
     race_id = state.get("current_race_id")
     if not race_id:
-        return "❌ Kein aktives Rennen gefunden."
+        return "❌ Kein aktives Rennen gefunden.", []
 
     driver = resolve_driver(discord_id, nickname, queue_orga_message)
     if not driver:
-        return "❌ Dein Profil konnte nicht aufgelöst werden. Die Orga wurde informiert."
+        return "❌ Dein Profil konnte nicht aufgelöst werden. Die Orga wurde informiert.", []
 
     driver_id = driver["driver_id"]
 
     # Bereits angemeldet?
     if get_registration(race_id, driver_id):
-        return "ℹ️ Du bist bereits angemeldet."
+        return "ℹ️ Du bist bereits angemeldet.", []
 
     # Warteliste prüfen
     driver_count = get_registration_count(race_id)
@@ -486,9 +498,15 @@ async def handle_register(session, discord_id: str, nickname: str) -> str:
 
     if on_waitlist:
         await send_waitlist_msg(session, [driver.get("psn_name", nickname)])
-        return "✅ Du hast dich angemeldet und stehst auf der Warteliste."
+        msg = "✅ Du hast dich angemeldet und stehst auf der Warteliste."
+    else:
+        msg = "✅ Du hast dich zum Rennen angemeldet."
 
-    return "✅ Du hast dich zum Rennen angemeldet."
+    # Daueranmeldung anbieten wenn noch kein Abo
+    if not has_abo(driver_id):
+        msg += "\n\n📋 Möchtest du dich dauerhaft anmelden?"
+        return msg, _build_abo_add_button()
+    return msg, []
 
 
 async def handle_unregister(session, discord_id: str, nickname: str) -> str:
@@ -502,17 +520,17 @@ async def handle_unregister(session, discord_id: str, nickname: str) -> str:
 
     race_id = state.get("current_race_id")
     if not race_id:
-        return "❌ Kein aktives Rennen gefunden."
+        return "❌ Kein aktives Rennen gefunden.", []
 
     driver = resolve_driver(discord_id, nickname, queue_orga_message)
     if not driver:
-        return "❌ Dein Profil konnte nicht aufgelöst werden."
+        return "❌ Dein Profil konnte nicht aufgelöst werden.", []
 
     driver_id = driver["driver_id"]
     reg = get_registration(race_id, driver_id)
 
     if not reg:
-        return "ℹ️ Du bist nicht angemeldet."
+        return "ℹ️ Du bist nicht angemeldet.", []
 
     # Wartelisten-Status bestimmen
     driver_count = get_registration_count(race_id)
@@ -547,8 +565,16 @@ async def handle_unregister(session, discord_id: str, nickname: str) -> str:
     await flush_orga_messages(session)
 
     if was_on_waitlist:
-        return "❌ Du hast dich von der Warteliste abgemeldet."
-    return "❌ Du hast dich vom Rennen abgemeldet."
+        msg = "❌ Du hast dich von der Warteliste abgemeldet."
+    else:
+        msg = "❌ Du hast dich vom Rennen abgemeldet."
+
+    # Dauerabmeldung anbieten wenn Abo aktiv
+    from db import has_abo
+    if has_abo(driver["driver_id"]):
+        msg += "\n\n📋 Möchtest du auch deine Daueranmeldung beenden?"
+        return msg, _build_abo_remove_button()
+    return msg, []
 
 
 async def handle_abo_add(session, discord_id: str, nickname: str) -> str:
@@ -563,12 +589,12 @@ async def handle_abo_add(session, discord_id: str, nickname: str) -> str:
     race_id = state.get("current_race_id")
     driver = resolve_driver(discord_id, nickname, queue_orga_message)
     if not driver:
-        return "❌ Dein Profil konnte nicht aufgelöst werden."
+        return "❌ Dein Profil konnte nicht aufgelöst werden.", []
 
     driver_id = driver["driver_id"]
 
     if has_abo(driver_id):
-        return "ℹ️ Du hast bereits eine Daueranmeldung."
+        return "ℹ️ Du hast bereits eine Daueranmeldung.", []
 
     add_abo(driver_id)
     add_log_entry(race_id, driver_id, "abo_angemeldet")
@@ -581,10 +607,10 @@ async def handle_abo_add(session, discord_id: str, nickname: str) -> str:
             sync_registrations_to_sheet(race_id)
         await update_checkin_message(session)
         await flush_orga_messages(session)
-        return "✅ Du bist jetzt dauerhaft angemeldet und wurdest automatisch für dieses Rennen eingetragen."
+        return "✅ Du bist jetzt dauerhaft angemeldet und wurdest automatisch für dieses Rennen eingetragen.", []
 
     await update_checkin_message(session)
-    return "✅ Du bist jetzt dauerhaft angemeldet und bleibst für dieses Rennen angemeldet."
+    return "✅ Du bist jetzt dauerhaft angemeldet und bleibst für dieses Rennen angemeldet.", []
 
 
 async def handle_abo_remove(session, discord_id: str, nickname: str) -> str:
@@ -595,12 +621,12 @@ async def handle_abo_remove(session, discord_id: str, nickname: str) -> str:
     race_id = state.get("current_race_id")
     driver = resolve_driver(discord_id, nickname, queue_orga_message)
     if not driver:
-        return "❌ Dein Profil konnte nicht aufgelöst werden."
+        return "❌ Dein Profil konnte nicht aufgelöst werden.", []
 
     driver_id = driver["driver_id"]
 
     if not has_abo(driver_id):
-        return "ℹ️ Du hast keine aktive Daueranmeldung."
+        return "ℹ️ Du hast keine aktive Daueranmeldung.", []
 
     remove_abo(driver_id)
     if race_id:
@@ -612,11 +638,11 @@ async def handle_abo_remove(session, discord_id: str, nickname: str) -> str:
             "❌ Du hast dich von der Daueranmeldung abgemeldet. "
             "Du bist für das aktuelle Rennen noch angemeldet. "
             "Bitte melde dich separat ab, falls du nicht mitfahren möchtest."
-        )
+        ), []
     return (
         "❌ Du hast dich von der Daueranmeldung abgemeldet. "
         "Du wirst ab nächster Woche nicht mehr automatisch eingetragen."
-    )
+    ), []
 
 
 async def handle_status(discord_id: str, nickname: str) -> str:
@@ -630,16 +656,16 @@ async def handle_status(discord_id: str, nickname: str) -> str:
 
     driver = resolve_driver(discord_id, nickname, queue_orga_message)
     if not driver:
-        return "❌ Dein Profil wurde nicht gefunden."
+        return "❌ Dein Profil wurde nicht gefunden.", []
 
     if not race_id or not race:
         reg = get_registration(race_id, driver["driver_id"]) if race_id else None
         abo = has_abo(driver["driver_id"])
         status = "✅ Angemeldet" if reg else "❌ Nicht angemeldet"
         abo_text = " · 📋 Dauerabo aktiv" if abo else ""
-        return f"{status}{abo_text}\n\nKein aktives Rennen."
+        return f"{status}{abo_text}\n\nKein aktives Rennen.", []
 
-    return build_status_message(driver, race_id, race)
+    return build_status_message(driver, race_id, race), []
 
 
 # ─────────────────────────────────────────────
@@ -856,27 +882,34 @@ async def process_interactions(session):
 
         log.info(f"Interaction: {custom_id} von {nickname} ({discord_id})")
 
+        components = []
         if custom_id == "checkin_register":
-            response = await handle_register(session, discord_id, nickname)
+            result = await handle_register(session, discord_id, nickname)
         elif custom_id == "checkin_unregister":
-            response = await handle_unregister(session, discord_id, nickname)
+            result = await handle_unregister(session, discord_id, nickname)
         elif custom_id == "checkin_abo_add":
-            response = await handle_abo_add(session, discord_id, nickname)
+            result = await handle_abo_add(session, discord_id, nickname)
         elif custom_id == "checkin_abo_remove":
-            response = await handle_abo_remove(session, discord_id, nickname)
+            result = await handle_abo_remove(session, discord_id, nickname)
         elif custom_id == "checkin_status":
-            response = await handle_status(discord_id, nickname)
+            result = await handle_status(discord_id, nickname)
         else:
-            response = "❌ Unbekannte Aktion."
+            result = "❌ Unbekannte Aktion.", []
+
+        # Tuple (response, components) oder nur string
+        if isinstance(result, tuple):
+            response, components = result
+        else:
+            response = result
 
         # Ephemeral followup senden
-        await send_ephemeral_followup(interaction_token, response)
+        await send_ephemeral_followup(interaction_token, response, components)
 
 
-async def send_ephemeral_followup(token: str, content: str):
+async def send_ephemeral_followup(token: str, content: str, components: list = None):
     """Sendet eine ephemeral Followup-Nachricht."""
     url = f"https://discord.com/api/v10/webhooks/{_env('DISCORD_APPLICATION_ID', '')}/{token}"
-    payload = {"content": content, "flags": 64}  # 64 = ephemeral
+    payload = {"content": content, "flags": 64, "components": components or []}
     async with aiohttp.ClientSession() as s:
         async with s.post(url, json=payload) as resp:
             if resp.status not in (200, 204):

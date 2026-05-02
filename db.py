@@ -55,10 +55,9 @@ def get_next_monday_race() -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT rc.*, s.season,
+                SELECT rc.*,
                        w.name_de AS weather_name, w.category AS weather_category
                 FROM race_calendar rc
-                LEFT JOIN seasons s ON s.id = rc.season_id
                 LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
                 WHERE rc.race_date = %s AND rc.is_pause = 0
                 LIMIT 1
@@ -72,10 +71,9 @@ def get_next_future_race() -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT rc.*, s.season,
+                SELECT rc.*,
                        w.name_de AS weather_name, w.category AS weather_category
                 FROM race_calendar rc
-                LEFT JOIN seasons s ON s.id = rc.season_id
                 LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
                 WHERE rc.race_date > %s AND rc.is_pause = 0
                 ORDER BY rc.race_date ASC
@@ -383,11 +381,11 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
             # Top 3 Ergebnisse (nach Grid-Platz, dann Overall)
             cur.execute("""
                 SELECT rr.finish_pos_grid, rr.finish_pos_overall,
-                       v.name AS vehicle_name, s.season AS season_name,
+                       v.name AS vehicle_name, s.name AS season_name,
                        r.race_date
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
-                JOIN seasons s ON s.id = r.season_id
+                JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
                 ORDER BY rr.finish_pos_grid ASC
@@ -427,10 +425,10 @@ def get_track_overall_stats(track_id: int) -> dict:
 
             # Streckenrekord (schnellste Runde aus races-Tabelle)
             cur.execute("""
-                SELECT r.fastest_lap_time, d.psn_name, s.season AS season_name
+                SELECT r.fastest_lap_time, d.psn_name, s.name AS season_name
                 FROM races r
                 JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
-                JOIN seasons s ON s.id = r.season_id
+                JOIN seasons s ON s.season_id = r.season_id
                 WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL
                 ORDER BY r.fastest_lap_time ASC
                 LIMIT 1
@@ -492,10 +490,9 @@ def get_race_by_id(race_id: int) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT rc.*, s.season,
+                SELECT rc.*,
                        w.name_de AS weather_name, w.category AS weather_category
                 FROM race_calendar rc
-                LEFT JOIN seasons s ON s.id = rc.season_id
                 LEFT JOIN gt7_weather_codes w ON w.code = rc.weather_code
                 WHERE rc.id = %s
             """, (race_id,))
