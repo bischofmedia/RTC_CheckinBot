@@ -307,9 +307,9 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
         header = (
             f"{test_banner}"
             f"{status_emoji} {status_text}\n"
-            f"**RTC {race['season']} · Race {race['race_number']} · {race['track_name']}**\n"
-            f"🔄 {race['laps']} Runden · 🕐 {race['time_of_day']} · {weather_emoji} {race['weather_code']}\n"
-            f"📅 {_format_date(race['race_date'])} · Lobby öffnet {LOBBY_OPEN} Uhr\n"
+            f"**RTC {race.get('season', '?')} · Race {race.get('race_number', '?')} · {race.get('track_name', '?')}**\n"
+            f"🔄 {race.get('laps', '?')} Runden · 🕐 {race.get('time_of_day', '?')} · {weather_emoji} {race.get('weather_code', '?')}\n"
+            f"📅 {_format_date(race.get('race_date'))} · Lobby öffnet {LOBBY_OPEN} Uhr\n"
             + (f"\n{track_stats}\n" if track_stats else "\n") +
             f"Fahrer: {driver_count} | Grids: {grid_count}{lock_symbol}"
         )
@@ -345,79 +345,96 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
     """
     Baut die ephemeral Status-Nachricht für den Status-Button.
     """
-    driver_id = driver["driver_id"]
-    track_id = race.get("track_id")
-    season_id = get_active_season_id()
+    try:
+        driver_id = driver["driver_id"]
+        track_id = race.get("track_id")
+        season_id = get_active_season_id()
 
-    lines = []
+        lines = []
 
-    # ── Anmeldestatus ────────────────────────────────────────────────────
-    reg = get_registration(race_id, driver_id)
-    abo = has_abo(driver_id)
+        # ── Anmeldestatus ─────────────────────────────────────────────────
+        try:
+            reg = get_registration(race_id, driver_id)
+            abo = has_abo(driver_id)
+            if reg:
+                source_text = " *(via Dauerabo)*" if reg["source"] == "abo" else ""
+                lines.append(f"✅ **Du bist angemeldet**{source_text}")
+            else:
+                lines.append("❌ **Du bist nicht angemeldet**")
+            if abo and not reg:
+                lines.append("📋 Du hast eine Daueranmeldung – sie greift ab nächster Woche.")
+        except Exception:
+            lines.append("⚠️ Anmeldestatus konnte nicht geladen werden.")
 
-    if reg:
-        source_text = " *(via Dauerabo)*" if reg["source"] == "abo" else ""
-        lines.append(f"✅ **Du bist angemeldet**{source_text}")
-    else:
-        lines.append("❌ **Du bist nicht angemeldet**")
+        # ── Grid-Einteilung ───────────────────────────────────────────────
+        try:
+            if reg:
+                grid = get_driver_grid_assignment(driver_id, race_id)
+                if grid:
+                    lines.append("")
+                    host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
+                    lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
+                    lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
+                    if grid.get("streamer_name"):
+                        stream_text = f"🎥 Dein Streamer ist **{grid['streamer_name']}**"
+                        if grid.get("streamer_url"):
+                            stream_text += f" · [Stream]({grid['streamer_url']})"
+                        lines.append(stream_text)
+                    lines.append("📊 Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
+        except Exception:
+            pass
 
-    if abo and not reg:
-        lines.append("📋 Du hast eine Daueranmeldung – sie greift ab nächster Woche.")
+        # ── Rating & Saisonstand ──────────────────────────────────────────
+        try:
+            rating = get_driver_current_rating(driver_id)
+            overall = get_driver_overall_stats(driver_id)
+            standings = get_driver_season_standings(driver_id, season_id) if season_id else None
 
-    # ── Grid-Einteilung ──────────────────────────────────────────────────
-    if reg:
-        grid = get_driver_grid_assignment(driver_id, race_id)
-        if grid:
             lines.append("")
-            host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
-            lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
-            lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
-            if grid.get("streamer_name"):
-                stream_text = f"🎥 Dein Streamer ist **{grid['streamer_name']}**"
-                if grid.get("streamer_url"):
-                    stream_text += f" · [Stream]({grid['streamer_url']})"
-                lines.append(stream_text)
-            lines.append("📊 Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
+            info_parts = []
+            if rating and rating.get("current_rating"):
+                info_parts.append(f"📈 Rating: **{float(rating['current_rating']):.4f}**")
+            if overall.get("total_races"):
+                info_parts.append(f"🏁 Rennen gesamt: **{overall['total_races']}**")
+            if standings:
+                info_parts.append(f"🏆 Saison-Punkte: **{standings.get('total_points', 0)}** · Rennen: **{standings.get('races_started', 0)}**")
+            for part in info_parts:
+                lines.append(part)
+        except Exception:
+            pass
 
-    # ── Rating & Saisonstand ─────────────────────────────────────────────
-    rating = get_driver_current_rating(driver_id)
-    overall = get_driver_overall_stats(driver_id)
-    standings = get_driver_season_standings(driver_id, season_id) if season_id else None
+        # ── Strecken-Ergebnisse ───────────────────────────────────────────
+        try:
+            if track_id:
+                stats = get_driver_track_stats(driver_id, track_id)
+                lines.append("")
+                lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
 
-    lines.append("")
-    info_parts = []
-    if rating and rating.get("current_rating"):
-        info_parts.append(f"📈 Rating: **{float(rating['current_rating']):.4f}**")
-    if overall.get("total_races"):
-        info_parts.append(f"🏁 Rennen gesamt: **{overall['total_races']}**")
-    if standings:
-        info_parts.append(f"🏆 Saison-Punkte: **{standings.get('total_points', 0)}** · Rennen: **{standings.get('races_started', 0)}**")
-    for part in info_parts:
-        lines.append(part)
+                if stats["race_count"] == 0:
+                    lines.append("Du bist diese Strecke noch nie gefahren.")
+                else:
+                    code_lines = ["Season    Datum      Grid  Pos  Ges       %  Fahrzeug"]
+                    code_lines.append("─" * 56)
+                    for result in stats["top3"]:
+                        try:
+                            season = str(result.get("season_name", "?"))[:8].ljust(8)
+                            race_date = result.get("race_date", "")
+                            date_str = race_date.strftime("%d.%m.%y") if race_date else "?       "
+                            grid_id = str(result.get("grid_number", "?")).rjust(4)
+                            pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
+                            pos_overall = str(result.get("finish_pos_overall", "?")).rjust(3)
+                            pct = result.get("time_percent")
+                            pct_str = f"{float(pct):.2f}%" if pct else "?"
+                            pct_str = pct_str.rjust(8)
+                            vehicle = str(result.get("vehicle_name", "?"))[:18]
+                            code_lines.append(f"{season}  {date_str}  {grid_id}  {pos_grid}  {pos_overall}  {pct_str}  {vehicle}")
+                        except Exception:
+                            continue
+                    lines.append("```\n" + "\n".join(code_lines) + "\n```")
+        except Exception:
+            pass
 
-    # ── Strecken-Ergebnisse ──────────────────────────────────────────────
-    if track_id:
-        stats = get_driver_track_stats(driver_id, track_id)
-        lines.append("")
-        lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
+        return "\n".join(lines)
 
-        if stats["race_count"] == 0:
-            lines.append("Du bist diese Strecke noch nie gefahren.")
-        else:
-            code_lines = ["Season    Datum      Grid  Pos  Ges       %  Fahrzeug"]
-            code_lines.append("─" * 56)
-            for result in stats["top3"]:
-                season = str(result.get("season_name", "?"))[:8].ljust(8)
-                race_date = result.get("race_date", "")
-                date_str = race_date.strftime("%d.%m.%y") if race_date else "?       "
-                grid_id = str(result.get("grid_number", "?")).rjust(4)
-                pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
-                pos_overall = str(result.get("finish_pos_overall", "?")).rjust(3)
-                pct = result.get("time_percent")
-                pct_str = f"{float(pct):.2f}%" if pct else "?"
-                pct_str = pct_str.rjust(8)
-                vehicle = str(result.get("vehicle_name", "?"))[:18]
-                code_lines.append(f"{season}  {date_str}  {grid_id}  {pos_grid}  {pos_overall}  {pct_str}  {vehicle}")
-            lines.append("```\n" + "\n".join(code_lines) + "\n```")
-
-    return "\n".join(lines)
+    except Exception as e:
+        return f"⚠️ Status konnte nicht geladen werden: {e}"

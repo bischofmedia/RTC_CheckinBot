@@ -199,8 +199,12 @@ async def update_checkin_message():
     from message_builder import build_channel_message, build_log_section
     race = state.get("current_race")
     race_id = state.get("current_race_id")
-    header, show_buttons = build_channel_message(race_id=race_id, race=race)
-    log_text = build_log_section(race_id) if race_id else "–"
+    try:
+        header, show_buttons = build_channel_message(race_id=race_id, race=race)
+        log_text = build_log_section(race_id) if race_id else "–"
+    except Exception as e:
+        log.error(f"Fehler beim Aufbau der Channel-Nachricht: {e}")
+        return
 
     now_str = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M")
     from db import load_state_value
@@ -326,6 +330,9 @@ async def handle_register(interaction: discord.Interaction):
     race_id = state.get("current_race_id")
     if not race_id:
         return "❌ Kein aktives Rennen gefunden.", None
+    
+    if is_registration_closed():
+        return "🔴 Die Anmeldung ist geschlossen.", None
 
     driver = await resolve_driver_from_interaction(interaction)
     if not driver:
@@ -382,6 +389,9 @@ async def handle_unregister(interaction: discord.Interaction):
     race_id = state.get("current_race_id")
     if not race_id:
         return "❌ Kein aktives Rennen gefunden.", None
+
+    if is_registration_closed():
+        return "🔴 Die Anmeldung ist geschlossen.", None
 
     driver = await resolve_driver_from_interaction(interaction)
     if not driver:
