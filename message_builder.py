@@ -176,7 +176,7 @@ def build_log_section(race_id: int) -> str:
     if not entries:
         return ""
     lines = [_format_log_entry(e) for e in entries]
-    return "─────────────────────────\n" + "\n".join(lines)
+    return "```\n" + "\n".join(lines) + "\n```"
 
 
 # ─────────────────────────────────────────────
