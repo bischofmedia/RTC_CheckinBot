@@ -250,7 +250,7 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
             f"{test_banner}"
             f"🏁 **Rennen {race['race_number']} · {race['season']}**\n"
             f"📍 {race['track_name']}\n"
-            f"🔄 {race['laps']} Runden · 🕐 {race['time_of_day']} · {weather_emoji} {race['weather_code']} · {weather_text}\n"
+            f"🔄 {race['laps']} Runden · 🕐 {race['time_of_day']} · {weather_emoji} {race['weather_code']}\n"
             f"📅 {_format_date(race['race_date'])} · Lobby öffnet {LOBBY_OPEN} Uhr\n"
             + (f"\n{track_stats}\n" if track_stats else "") +
             f"\n{status_emoji} {status_text}\n"
@@ -311,14 +311,15 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
         grid = get_driver_grid_assignment(driver_id, race_id)
         if grid:
             lines.append("")
-            lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt.")
+            host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
+            lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
             lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
             if grid.get("streamer_name"):
-                stream_text = f"Dein Streamer ist **{grid['streamer_name']}**"
+                stream_text = f"🎥 Dein Streamer ist **{grid['streamer_name']}**"
                 if grid.get("streamer_url"):
                     stream_text += f" · [Stream]({grid['streamer_url']})"
                 lines.append(stream_text)
-            lines.append("Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
+            lines.append("📊 Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
 
     # ── Rating & Saisonstand ─────────────────────────────────────────────
     rating = get_driver_current_rating(driver_id)
@@ -345,8 +346,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
         if stats["race_count"] == 0:
             lines.append("Du bist diese Strecke noch nie gefahren.")
         else:
-            code_lines = ["Season    Datum      Grid  Pos  Ges   %    Fahrzeug"]
-            code_lines.append("─" * 58)
+            code_lines = ["Season    Datum      Grid  Pos  Ges       %  Fahrzeug"]
+            code_lines.append("─" * 56)
             for result in stats["top3"]:
                 season = str(result.get("season_name", "?"))[:8].ljust(8)
                 race_date = result.get("race_date", "")
