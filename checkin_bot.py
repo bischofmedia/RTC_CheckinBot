@@ -455,18 +455,19 @@ async def handle_abo_add(interaction: discord.Interaction):
     if has_abo(driver_id):
         return "ℹ️ Du hast bereits eine Daueranmeldung.", None
 
-    add_abo(driver_id)
-    if race_id:
-        add_log_entry(race_id, driver_id, "abo_angemeldet")
-
     already_registered = race_id and get_registration(race_id, driver_id)
+    add_abo(driver_id)
+
     if race_id and not already_registered:
+        # Nur Log-Eintrag wenn noch nicht angemeldet
+        add_log_entry(race_id, driver_id, "abo_angemeldet")
         add_registration(race_id, driver_id, source="abo")
         if not TEST_MODE:
             sync_registrations_to_sheet(race_id)
         await update_checkin_message()
         return "✅ Du bist jetzt dauerhaft angemeldet und wurdest automatisch für dieses Rennen eingetragen.", None
 
+    # War bereits angemeldet - kein Log-Eintrag
     await update_checkin_message()
     return "✅ Du bist jetzt dauerhaft angemeldet und bleibst für dieses Rennen angemeldet.", None
 
