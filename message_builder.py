@@ -117,6 +117,22 @@ def get_status(race_id: int, grid_count: int, driver_count: int) -> tuple[str, s
     return "🟢", f"Anmeldung offen · {driver_count} Fahrer · {grid_count} Grids"
 
 
+def _is_grid_locked(race_id: int) -> bool:
+    """Gibt True zurück wenn der Grid-Lock aktiv ist (Sonntag 18:00 oder manuell)."""
+    from db import get_grid_override
+    now = datetime.now(BERLIN)
+    # Sunday 18:00+
+    if now.weekday() == 6 and now.hour >= 18:
+        return True
+    # Monday
+    if now.weekday() == 0:
+        return True
+    # Manual override
+    if race_id and get_grid_override(race_id):
+        return True
+    return False
+
+
 def is_registration_closed() -> bool:
     """Gibt True zurück wenn die Anmeldung geschlossen ist (🔴)."""
     now = datetime.now(BERLIN)
@@ -146,41 +162,80 @@ def is_waitlist_active(race_id: int) -> bool:
 # Log-Einträge formatieren
 # ─────────────────────────────────────────────
 
-def _format_log_entry(entry: dict) -> str:
-    """Formatiert einen Log-Eintrag als Discord-Zeile."""
-    ts = entry["timestamp"]
+def _ts_str(ts) -> str:
+    """Formatiert einen Timestamp als 'WD HH:MM'."""
     if isinstance(ts, str):
         ts = datetime.fromisoformat(ts)
     weekday = WEEKDAYS_DE.get(ts.weekday(), "??")
-    time_str = ts.strftime("%H:%M")
+    return f"{weekday} {ts.strftime('%H:%M')}"
+
+
+def _format_log_entry(entry: dict, prev_status: str | None) -> str | None:
+    """
+    Formatiert einen Log-Eintrag als Discord-Zeile.
+    prev_status: vorheriger Status des Fahrers ('angemeldet', 'warteliste', None)
+    """
+    ts = _ts_str(entry["timestamp"])
     name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
     action = entry["action"]
 
     if action == "angemeldet":
-        return f"{weekday} {time_str} 🟢 {name}"
-    elif action == "abgemeldet":
-        return f"{weekday} {time_str} 🔴 {name}"
+        if prev_status == "abgemeldet":
+            return f"{ts} 🔴 -> 🟢 {name}"
+        return f"{ts} 🟢 {name}"
     elif action == "abo_angemeldet":
-        # Nur automatische Dienstags-Anmeldungen zeigen
-        return f"{weekday} {time_str} 🟢 {name} (Abo)"
+        return f"{ts} 🟢 {name} (Abo)"
+    elif action == "abgemeldet":
+        if prev_status == "warteliste":
+            return f"{ts} 🟡 -> 🔴 {name}"
+        return f"{ts} 🟢 -> 🔴 {name}"
     elif action == "abo_abgemeldet":
-        return None  # Nicht im Log anzeigen
+        return None  # Nicht im Log
     elif action == "warteliste":
-        return f"{weekday} {time_str} 🟢 → 🟡 {name}"
+        if prev_status == "abgemeldet":
+            return f"{ts} 🔴 -> 🟡 {name}"
+        return f"{ts} 🟢 -> 🟡 {name}"
     elif action == "nachgerueckt":
-        return f"{weekday} {time_str} 🟡 → 🟢 {name}"
+        return f"{ts} 🟡 -> 🟢 {name}"
     elif action == "warteliste_abgemeldet":
-        return f"{weekday} {time_str} 🟡 → 🔴 {name}"
+        return f"{ts} 🟡 -> 🔴 {name}"
     return None
 
 
 def build_log_section(race_id: int) -> str:
-    """Baut den Log-Bereich der Channel-Nachricht als Codeblock."""
+    """
+    Baut den Log-Bereich Apollo-style:
+    Chronologische Liste aller Einträge, Übergänge als Pfeil.
+    """
     entries = get_log_entries(race_id)
     if not entries:
         return ""
-    lines = [_format_log_entry(e) for e in entries]
-    lines = [l for l in lines if l is not None]
+
+    # Vorherigen Status pro Fahrer tracken
+    driver_prev_status = {}  # name -> letzter Status
+    lines = []
+
+    for entry in entries:
+        name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
+        action = entry["action"]
+        prev = driver_prev_status.get(name)
+
+        line = _format_log_entry(entry, prev)
+        if line:
+            lines.append(line)
+
+        # Status updaten
+        if action in ("angemeldet",):
+            driver_prev_status[name] = "angemeldet"
+        elif action == "abo_angemeldet":
+            driver_prev_status[name] = "angemeldet"
+        elif action in ("abgemeldet", "abo_abgemeldet", "warteliste_abgemeldet"):
+            driver_prev_status[name] = "abgemeldet"
+        elif action == "warteliste":
+            driver_prev_status[name] = "warteliste"
+        elif action == "nachgerueckt":
+            driver_prev_status[name] = "angemeldet"
+
     if not lines:
         return ""
     return "```\n" + "\n".join(lines) + "\n```"
@@ -243,17 +298,20 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
         closed = is_registration_closed()
 
         weather_emoji = _weather_emoji(race.get("weather_category", ""))
-        weather_text = race.get("weather_name", race.get("weather_code", ""))
+        locked = is_registration_closed() or _is_grid_locked(race_id)
+        lock_symbol = " 🔒" if locked else ""
 
         track_stats = build_track_stats_block(race)
+
+        # Apollo-style: Status oben, dann Renninfo, dann Streckeninfo, dann Fahrer|Grids
         header = (
             f"{test_banner}"
-            f"🏁 **Rennen {race['race_number']} · {race['season']}**\n"
-            f"📍 {race['track_name']}\n"
+            f"{status_emoji} {status_text}\n"
+            f"**RTC {race['season']} · Race {race['race_number']} · {race['track_name']}**\n"
             f"🔄 {race['laps']} Runden · 🕐 {race['time_of_day']} · {weather_emoji} {race['weather_code']}\n"
             f"📅 {_format_date(race['race_date'])} · Lobby öffnet {LOBBY_OPEN} Uhr\n"
-            + (f"\n{track_stats}\n" if track_stats else "") +
-            f"\n{status_emoji} {status_text}\n"
+            + (f"\n{track_stats}\n" if track_stats else "\n") +
+            f"Fahrer: {driver_count} | Grids: {grid_count}{lock_symbol}"
         )
 
         return header, not closed
