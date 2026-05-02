@@ -355,8 +355,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
                 pos_overall = str(result.get("finish_pos_overall", "?")).rjust(3)
                 pct = result.get("time_percent")
-                pct_str = f"{float(pct)*100:.1f}%" if pct else "  ?  "
-                pct_str = pct_str.rjust(5)
+                pct_str = f"{float(pct)*100:.2f}%" if pct else "?"
+                pct_str = pct_str.rjust(8)
                 vehicle = str(result.get("vehicle_name", "?"))[:18]
                 code_lines.append(f"{season}  {date_str}  {grid_id}  {pos_grid}  {pos_overall}  {pct_str}  {vehicle}")
             lines.append("```\n" + "\n".join(code_lines) + "\n```")
