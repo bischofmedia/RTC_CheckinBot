@@ -212,8 +212,7 @@ def build_track_stats_block(race: dict) -> str:
         gv = f" ({r['game_version']})" if r.get("game_version") else ""
         lines.append(f"⏱️ Rekord: {r['fastest_lap_time']} · {r['psn_name']} · {r['season_name']}{gv}")
 
-    return "
-".join(lines)
+    return "\n".join(lines)
 
 # ─────────────────────────────────────────────
 # Channel-Nachricht
