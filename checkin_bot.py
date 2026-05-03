@@ -706,74 +706,86 @@ _last_sunday_lock = None
 _last_deadline_check = None
 
 
+_pull_mode_running = False
+
 async def pull_mode_sync():
     """
     PULL_MODE: Liest die Anmeldeliste aus dem Sheet und gleicht sie mit der DB ab.
     Nur aktiv wenn TEST_MODE=true und PULL_MODE=true.
+    Alle Änderungen werden gesammelt, dann einmal am Ende aktualisiert.
     """
+    global _pull_mode_running
     if not TEST_MODE or not PULL_MODE:
         return
-
-    from db import (
-        get_all_registrations, add_registration, remove_registration,
-        add_log_entry, get_registration_count
-    )
-    from sheets import _get_sheet_client
-
-    race_id = state.get("current_race_id")
-    if not race_id:
+    if _pull_mode_running:
+        log.debug("PULL_MODE: Sync läuft bereits, überspringe.")
         return
 
+    _pull_mode_running = True
     try:
-        client = _get_sheet_client()
-        sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
-        ws = sheet.worksheet(os.environ.get("GOOGLE_SHEETS_TAB", "Apollo-Grabber"))
-        # Q1 auslesen - Apollo schreibt Fahrerliste dort hin
-        cell_value = ws.acell("Q1").value or ""
-        sheet_drivers = set(n.strip() for n in cell_value.split("\n") if n.strip())
-    except Exception as e:
-        log.error(f"PULL_MODE: Sheet-Lesefehler: {e}")
-        return
+        from db import (
+            get_all_registrations, add_registration, remove_registration,
+            add_log_entry, get_registration_count, get_connection
+        )
+        from sheets import _get_sheet_client
 
-    # Aktuelle DB-Anmeldungen
-    current_regs = get_all_registrations(race_id)
-    db_drivers = {r["psn_name"]: r["driver_id"] for r in current_regs}
+        race_id = state.get("current_race_id")
+        if not race_id:
+            return
 
-    # Fahrer die im Sheet aber nicht in DB → anmelden
-    from db import get_connection
-    changed = False
-    for psn in sheet_drivers:
-        if psn not in db_drivers:
-            # Fahrer suchen
-            try:
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT driver_id FROM drivers WHERE psn_name = %s AND is_legacy = 0 LIMIT 1", (psn,))
-                        row = cur.fetchone()
-                        if row:
-                            driver_id = row["driver_id"]
-                            driver_count = get_registration_count(race_id)
-                            grid_count = calculate_grids(driver_count)
-                            max_drivers = grid_count * DRIVERS_PER_GRID
-                            on_waitlist = state.get("grid_locked") and driver_count >= max_drivers
-                            add_registration(race_id, driver_id, source="manual")
-                            add_log_entry(race_id, driver_id, "warteliste" if on_waitlist else "angemeldet")
-                            log.info(f"PULL_MODE: {psn} angemeldet")
-                            if on_waitlist:
-                                await send_waitlist_msg([psn])
-                            new_count = get_registration_count(race_id)
-                            new_grids = calculate_grids(new_count)
-                            if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
-                                await send_grid_full_msg(new_grids)
-                                state["last_grid_count"] = new_grids
-                            changed = True
-            except Exception as e:
-                log.error(f"PULL_MODE: Fehler beim Anmelden von {psn}: {e}")
+        # Sheet lesen
+        try:
+            client = _get_sheet_client()
+            sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
+            ws = sheet.worksheet(os.environ.get("GOOGLE_SHEETS_TAB", "Apollo-Grabber"))
+            cell_value = ws.acell("Q1").value or ""
+            sheet_drivers = set(n.strip() for n in cell_value.split("\n") if n.strip())
+        except Exception as e:
+            log.error(f"PULL_MODE: Sheet-Lesefehler: {e}")
+            return
 
-    # Fahrer die in DB aber nicht im Sheet → abmelden
-    for psn, driver_id in db_drivers.items():
-        if psn not in sheet_drivers:
-            try:
+        log.info(f"PULL_MODE: {len(sheet_drivers)} Fahrer im Sheet gefunden.")
+
+        # Aktuelle DB-Anmeldungen
+        current_regs = get_all_registrations(race_id)
+        db_drivers = {r["psn_name"]: r["driver_id"] for r in current_regs}
+
+        # Alle PSN-Namen aus DB laden für schnelle Suche
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT driver_id, psn_name FROM drivers WHERE is_legacy = 0")
+                all_drivers = {row["psn_name"]: row["driver_id"] for row in cur.fetchall()}
+
+        changed = False
+        waitlist_drivers = []
+        nachrücker = []
+
+        # Fahrer im Sheet aber nicht in DB → anmelden
+        for psn in sheet_drivers:
+            if psn not in db_drivers:
+                driver_id = all_drivers.get(psn)
+                if driver_id:
+                    driver_count = get_registration_count(race_id)
+                    grid_count = calculate_grids(driver_count)
+                    max_drivers = grid_count * DRIVERS_PER_GRID
+                    on_waitlist = state.get("grid_locked") and driver_count >= max_drivers
+                    add_registration(race_id, driver_id, source="manual")
+                    add_log_entry(race_id, driver_id, "warteliste" if on_waitlist else "angemeldet")
+                    log.info(f"PULL_MODE: {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
+                    if on_waitlist:
+                        waitlist_drivers.append(psn)
+                    new_count = get_registration_count(race_id)
+                    new_grids = calculate_grids(new_count)
+                    if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
+                        await send_grid_full_msg(new_grids)
+                        state["last_grid_count"] = new_grids
+                    changed = True
+                else:
+                    log.warning(f"PULL_MODE: Fahrer nicht gefunden: {psn}")
+
+        # Fahrer in DB aber nicht im Sheet → abmelden
+        for psn, driver_id in list(db_drivers.items()):
+            if psn not in sheet_drivers:
                 driver_count = get_registration_count(race_id)
                 grid_count = calculate_grids(driver_count)
                 max_drivers = grid_count * DRIVERS_PER_GRID
@@ -784,17 +796,27 @@ async def pull_mode_sync():
                 log.info(f"PULL_MODE: {psn} abgemeldet")
                 if was_on_waitlist:
                     all_regs = get_all_registrations(race_id)
-                    waitlist = all_regs[max_drivers-1:]
-                    if waitlist:
-                        moved = waitlist[0]
-                        add_log_entry(race_id, moved["driver_id"], "nachgerueckt")
-                        await send_moved_up_msg([moved["psn_name"]])
+                    if len(all_regs) >= max_drivers - 1:
+                        moved = all_regs[max_drivers - 2] if len(all_regs) >= max_drivers - 1 else None
+                        if moved:
+                            add_log_entry(race_id, moved["driver_id"], "nachgerueckt")
+                            nachrücker.append(moved["psn_name"])
                 changed = True
-            except Exception as e:
-                log.error(f"PULL_MODE: Fehler beim Abmelden von {psn}: {e}")
 
-    if changed:
-        await update_checkin_message()
+        # Nachrichten senden
+        if waitlist_drivers:
+            await send_waitlist_msg(waitlist_drivers)
+        if nachrücker:
+            await send_moved_up_msg(nachrücker)
+
+        if changed:
+            await update_checkin_message()
+            log.info(f"PULL_MODE: Sync abgeschlossen. DB hat jetzt {get_registration_count(race_id)} Fahrer.")
+
+    except Exception as e:
+        log.error(f"PULL_MODE: Fehler: {e}")
+    finally:
+        _pull_mode_running = False
 
 
 @tasks.loop(minutes=1)
