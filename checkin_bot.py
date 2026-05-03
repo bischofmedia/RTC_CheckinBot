@@ -216,8 +216,11 @@ async def update_checkin_message():
 
     channel = bot.get_channel(CHAN_CHECKIN)
     if not channel:
-        log.error("CHAN_CHECKIN nicht gefunden!")
-        return
+        try:
+            channel = await bot.fetch_channel(CHAN_CHECKIN)
+        except Exception as e:
+            log.error(f"CHAN_CHECKIN {CHAN_CHECKIN} nicht gefunden: {e}")
+            return
 
     view = CheckinView() if show_buttons else None
     msg_id = state.get("checkin_msg_id")
