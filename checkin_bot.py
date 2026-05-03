@@ -3,6 +3,7 @@ RTC CheckinBot – checkin_bot.py
 Hauptbot: Discord.py Gateway, Buttons, Wochenlogik, Scheduler
 """
 
+
 import asyncio
 import logging
 import os
