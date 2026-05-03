@@ -501,47 +501,56 @@ def get_track_overall_stats(track_id: int) -> dict:
 
 
 
-def get_track_header_stats(track_id: int) -> dict:
+def get_track_header_stats(track_id: int, season_class: str = None) -> dict:
     """Gibt erweiterte Streckenstatistiken für den Channel-Header zurück."""
     with get_connection() as conn:
         with conn.cursor() as cur:
+            class_filter = "AND s.`class` = %s" if season_class else ""
+            params_class = (season_class,) if season_class else ()
+
             # Wie oft gefahren und letzte Saison
-            cur.execute("""
+            cur.execute(f"""
                 SELECT COUNT(*) AS total_races, MAX(r.race_date) AS last_date,
-                       (SELECT s2.name FROM seasons s2 
-                        JOIN races r2 ON r2.season_id = s2.season_id 
-                        WHERE r2.track_id = %s 
+                       (SELECT s2.name FROM seasons s2
+                        JOIN races r2 ON r2.season_id = s2.season_id
+                        WHERE r2.track_id = %s {class_filter}
                         ORDER BY r2.race_date DESC LIMIT 1) AS last_season
                 FROM races r
-                WHERE r.track_id = %s
-            """, (track_id, track_id))
+                JOIN seasons s ON s.season_id = r.season_id
+                WHERE r.track_id = %s {class_filter}
+            """, (track_id,) + params_class + (track_id,) + params_class)
             basic = cur.fetchone()
 
-            # Meiste Siege (finish_pos_grid = 1, mind. 2 Siege)
-            cur.execute("""
+            # Meiste Siege (finish_pos_grid = 1)
+            cur.execute(f"""
                 SELECT d.psn_name, COUNT(*) AS wins
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
+                JOIN seasons s ON s.season_id = r.season_id
                 JOIN drivers d ON d.driver_id = rr.driver_id
-                WHERE r.track_id = %s AND rr.finish_pos_grid = 1
+                WHERE r.track_id = %s AND rr.finish_pos_grid = 1 {class_filter}
                 GROUP BY rr.driver_id
-                HAVING wins >= 2
                 ORDER BY wins DESC
                 LIMIT 3
-            """, (track_id,))
-            top_winners = cur.fetchall()
+            """, (track_id,) + params_class)
+            all_winners = cur.fetchall()
+            if basic and basic["total_races"] <= 3:
+                top_winners = all_winners
+            else:
+                top_winners = [w for w in all_winners if w["wins"] >= 2]
 
             # Meist genutzte Fahrzeuge
-            cur.execute("""
-                SELECT v.name AS vehicle_name, COUNT(*) AS cnt
+            cur.execute(f"""
+                SELECT COALESCE(v.name_short, v.name) AS vehicle_name, COUNT(*) AS cnt
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
+                JOIN seasons s ON s.season_id = r.season_id
                 JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
-                WHERE r.track_id = %s AND rr.vehicle_id IS NOT NULL
+                WHERE r.track_id = %s AND rr.vehicle_id IS NOT NULL {class_filter}
                 GROUP BY rr.vehicle_id
                 ORDER BY cnt DESC
                 LIMIT 3
-            """, (track_id,))
+            """, (track_id,) + params_class)
             top_vehicles = cur.fetchall()
 
             # Schnellste Rennrunde
