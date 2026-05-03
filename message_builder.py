@@ -409,7 +409,7 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 stats = get_driver_track_stats(driver_id, track_id)
                 lines.append("")
                 lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
-        lines.append("*Handy quer, siehste mehr* 😉")
+                lines.append("*Handy quer, siehste mehr* 😉")
 
                 if stats["race_count"] == 0:
                     lines.append("Du bist diese Strecke noch nie gefahren.")
