@@ -158,7 +158,7 @@ def calculate_grids(driver_count: int) -> int:
             return override["grid_count"]
     if driver_count == 0:
         return 0
-    grids = max(1, driver_count // DRIVERS_PER_GRID)
+    grids = max(1, (driver_count + DRIVERS_PER_GRID - 1) // DRIVERS_PER_GRID)
     if ENABLE_EXTRA_GRID:
         remainder = driver_count % DRIVERS_PER_GRID
         if remainder >= EXTRA_GRID_THRESHOLD:
