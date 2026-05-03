@@ -936,6 +936,7 @@ async def setup_hook():
 bot.setup_hook = setup_hook
 
 
+
 @bot.event
 async def on_ready():
     log.info(f"Bot eingeloggt als {bot.user}")

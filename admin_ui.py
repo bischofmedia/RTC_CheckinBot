@@ -5,7 +5,7 @@ Postet eine persistente Admin-Nachricht in CHAN_ADMIN.
 Wird beim Bot-Start und jeden Dienstag um 10:00 Uhr (Berlin) aktualisiert.
 
 Buttons (3 Rows à 2):
-  Row 0: ✅ Anmelden    ❌ Abmelden      (nur wenn Rennen aktiv)
+  Row 0: ✅ Anmelden    ❌ Abmelden      (nur wenn Rennen am nächsten Montag)
   Row 1: ⭐ Abo an      ⬜ Abo aus
   Row 2: 🔒 Sperren    🔓 Entsperren
 
@@ -20,8 +20,10 @@ Voraussetzungen in .env:
   GOOGLE_SHEETS_ID          – Spreadsheet-ID
   GOOGLE_CREDENTIALS_FILE   – Pfad zur Service-Account-JSON
 
-Einbinden in checkin_bot.py:
-  await bot.load_extension("admin_ui")
+Einbinden in checkin_bot.py (nach bot = commands.Bot(...)):
+  async def setup_hook():
+      await bot.load_extension("admin_ui")
+  bot.setup_hook = setup_hook
 
 SQL-Voraussetzung (einmalig ausführen):
   ALTER TABLE `drivers` ADD COLUMN `abo_locked` tinyint(1) NOT NULL DEFAULT 0;
@@ -96,8 +98,8 @@ def fetch_all_status(db, psn_names: list[str]) -> dict[str, dict]:
     """
     Gibt pro PSN-Name zurück:
       driver_id, registered (bool), abo (bool), locked (bool)
-    registered = Eintrag in checkin_registrations (race_id ignoriert, Tabelle
-                 enthält immer nur das aktuelle Rennen).
+    registered = Eintrag in checkin_registrations (Tabelle enthält immer
+                 nur das aktuelle Rennen, race_id wird nicht ausgewertet).
     """
     id_map = fetch_driver_ids_by_psn(db, psn_names)
     if not id_map:
@@ -401,7 +403,7 @@ class RangeSelectView(discord.ui.View):
 # ---------------------------------------------------------------------------
 
 class AdminViewFull(discord.ui.View):
-    """Alle 6 Buttons — wenn ein Rennen ansteht."""
+    """Alle 6 Buttons — wenn ein Rennen am nächsten Montag ansteht."""
 
     def __init__(self):
         super().__init__(timeout=None)
@@ -521,67 +523,71 @@ class AdminViewAboOnly(discord.ui.View):
 # ---------------------------------------------------------------------------
 
 def _next_monday() -> date:
-    today = date.today()
-    days_ahead = 7 - today.weekday()   # Montag = 0
-    if days_ahead == 7:
-        days_ahead = 0
-    return today + timedelta(days=days_ahead)
+    today      = date.today()
+    days_ahead = (7 - today.weekday()) % 7
+    return today + timedelta(days=days_ahead if days_ahead else 7)
 
 
 def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord.ui.View]:
     """
     Gibt (Embed, View) zurück passend zum nächsten Rennen.
-    next_race: {"race_date": date, "track_name": str, "track_id": int} oder None
     """
-    if next_race and next_race["track_id"] != 0:
-        race_date  = next_race["race_date"]
-        track_name = next_race["track_name"]
-        # Ist das Rennen am nächsten Montag?
-        is_monday  = race_date == _next_monday()
+    next_monday = _next_monday()
 
-        if is_monday:
-            desc = (
-                f"**Nächstes Rennen:** {track_name} – "
-                f"{race_date.strftime('%d.%m.%Y')}\n\n"
+    if next_race and next_race["track_id"] != 0 and next_race["race_date"] == next_monday:
+        # Rennen am nächsten Montag → alle 6 Buttons
+        track_name = next_race["track_name"]
+        race_date  = next_race["race_date"]
+        embed = discord.Embed(
+            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            description=(
+                f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n\n"
                 "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
                 "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
-            )
-        else:
-            desc = (
-                f"**Nächstes eingetragenes Rennen:** {track_name} – "
-                f"{race_date.strftime('%d.%m.%Y')}\n"
-                f"*(kein Rennen am kommenden Montag)*\n\n"
-                "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
-                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
-            )
-            embed = discord.Embed(
-                title="🏁 RTC CheckinBot – Admin-Verwaltung",
-                description=desc,
-                color=discord.Color.dark_grey(),
-            )
-            embed.set_footer(text=ADMIN_MSG_MARKER)
-            return embed, AdminViewAboOnly()
-
-        embed = discord.Embed(
-            title="🏁 RTC CheckinBot – Admin-Verwaltung",
-            description=desc,
+            ),
             color=discord.Color.blue(),
         )
         embed.set_footer(text=ADMIN_MSG_MARKER)
         return embed, AdminViewFull()
 
-    else:
-        # Pause oder Saisonende
-        if next_race and next_race["track_id"] == 0:
-            info = "Diese Woche ist eine **Rennpause**."
-        else:
-            info = "Die Saison ist **beendet**."
-
+    elif next_race and next_race["track_id"] != 0:
+        # Rennen eingetragen, aber nicht nächsten Montag → nur Abo/Sperre
+        track_name = next_race["track_name"]
+        race_date  = next_race["race_date"]
         embed = discord.Embed(
             title="🏁 RTC CheckinBot – Admin-Verwaltung",
             description=(
-                f"{info} Keine Renn-Anmeldungen möglich.\n\n"
+                f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n"
+                f"*(kein Rennen am kommenden Montag)*\n\n"
+                "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
+                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
+            ),
+            color=discord.Color.dark_grey(),
+        )
+        embed.set_footer(text=ADMIN_MSG_MARKER)
+        return embed, AdminViewAboOnly()
+
+    elif next_race and next_race["track_id"] == 0:
+        # Pause
+        embed = discord.Embed(
+            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            description=(
+                "Diese Woche ist eine **Rennpause**. Keine Renn-Anmeldungen möglich.\n\n"
+                "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
+                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
+            ),
+            color=discord.Color.dark_grey(),
+        )
+        embed.set_footer(text=ADMIN_MSG_MARKER)
+        return embed, AdminViewAboOnly()
+
+    else:
+        # Saisonende
+        embed = discord.Embed(
+            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            description=(
+                "Die Saison ist **beendet**. Keine Renn-Anmeldungen möglich.\n\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
                 "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
             ),
@@ -612,7 +618,7 @@ async def update_admin_message(bot: commands.Bot, force_repost: bool = False) ->
     chan_id = int(os.environ["CHAN_ADMIN"])
     channel = bot.get_channel(chan_id)
     if not channel:
-        log.error("CHAN_ADMIN %s nicht gefunden.", chan_id)
+        log.error("CHAN_ADMIN %s nicht gefunden – Bot noch nicht ready?", chan_id)
         return
 
     db = get_db()
@@ -647,6 +653,7 @@ class AdminUI(commands.Cog):
         self.tuesday_update.start()
 
     async def cog_load(self):
+        await self.bot.wait_until_ready()
         await update_admin_message(self.bot)
 
     def cog_unload(self):

@@ -318,7 +318,7 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
         # Apollo-style: Status + Fahrer/Grids oben, dann Renninfo, dann Streckeninfo
         header = (
             f"{test_banner}"
-            f"{status_emoji} {status_text} · {driver_count} Fahrer · {grid_count} Grids{lock_symbol}\n"
+            f"{status_emoji} {status_text}{lock_symbol}\n"
             f"**RTC {race.get('season', '?')} · Race {race.get('race_number', '?')} · {race.get('track_name', '?')}**\n"
             f"🔄 {race.get('laps', '?')} Runden · 🕐 {race.get('time_of_day', '?')} · {weather_emoji} {race.get('weather_code', '?')}\n"
             f"📅 {_format_date(race.get('race_date'))} · Lobby öffnet {LOBBY_OPEN} Uhr"
