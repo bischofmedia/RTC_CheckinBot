@@ -304,19 +304,11 @@ class DriverSelect(discord.ui.Select):
                                 "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
                                 (did,),
                             )
-                            cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'angemeldet', NOW())",
-                                (did,),
-                            )
                             changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
                             cur.execute(
                                 "DELETE FROM checkin_registrations WHERE driver_id=%s",
-                                (did,),
-                            )
-                            cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'abgemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"❌ `{psn}` abgemeldet")
@@ -358,11 +350,13 @@ class DriverSelect(discord.ui.Select):
         # Checkin-Nachricht aktualisieren wenn An-/Abmeldungen geändert wurden
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
-                import checkin_bot
-                channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
-                if not channel:
-                    channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
-                await checkin_bot.update_checkin_message(channel=channel)
+                import sys
+                checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
+                if checkin_bot:
+                    channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
+                    if not channel:
+                        channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
+                    await checkin_bot.update_checkin_message(channel=channel)
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
