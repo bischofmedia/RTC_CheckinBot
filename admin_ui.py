@@ -304,11 +304,19 @@ class DriverSelect(discord.ui.Select):
                                 "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
                                 (did,),
                             )
+                            cur.execute(
+                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'angemeldet', NOW())",
+                                (did,),
+                            )
                             changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
                             cur.execute(
                                 "DELETE FROM checkin_registrations WHERE driver_id=%s",
+                                (did,),
+                            )
+                            cur.execute(
+                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'abgemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"❌ `{psn}` abgemeldet")
