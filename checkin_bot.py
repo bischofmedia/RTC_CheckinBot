@@ -81,6 +81,7 @@ MAX_GRIDS                      = _env_int("MAX_GRIDS", 4)
 REGISTRATION_DEADLINE          = _env("REGISTRATION_DEADLINE", "20:45")
 LOBBY_OPEN                     = _env("LOBBY_OPEN", "20:30")
 TEST_MODE                      = _env("TEST_MODE", "false").lower() == "true"
+PULL_MODE                      = _env("PULL_MODE", "false").lower() == "true"
 
 ENABLE_EXTRA_GRID     = _env_int("ENABLE_EXTRA_GRID", 0)
 EXTRA_GRID_THRESHOLD  = _env_int("EXTRA_GRID_THRESHOLD", 10)
@@ -666,6 +667,98 @@ _last_tuesday_reset = None
 _last_sunday_lock = None
 _last_deadline_check = None
 
+
+async def pull_mode_sync():
+    """
+    PULL_MODE: Liest die Anmeldeliste aus dem Sheet und gleicht sie mit der DB ab.
+    Nur aktiv wenn TEST_MODE=true und PULL_MODE=true.
+    """
+    if not TEST_MODE or not PULL_MODE:
+        return
+
+    from db import (
+        get_all_registrations, add_registration, remove_registration,
+        add_log_entry, get_registration_count
+    )
+    from sheets import _get_sheet_client
+
+    race_id = state.get("current_race_id")
+    if not race_id:
+        return
+
+    try:
+        client = _get_sheet_client()
+        sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
+        ws = sheet.worksheet(os.environ.get("GOOGLE_SHEETS_TAB", "Apollo-Grabber"))
+        # Q1 auslesen - Apollo schreibt Fahrerliste dort hin
+        cell_value = ws.acell("Q1").value or ""
+        sheet_drivers = set(n.strip() for n in cell_value.split("\n") if n.strip())
+    except Exception as e:
+        log.error(f"PULL_MODE: Sheet-Lesefehler: {e}")
+        return
+
+    # Aktuelle DB-Anmeldungen
+    current_regs = get_all_registrations(race_id)
+    db_drivers = {r["psn_name"]: r["driver_id"] for r in current_regs}
+
+    # Fahrer die im Sheet aber nicht in DB → anmelden
+    from db import get_connection
+    changed = False
+    for psn in sheet_drivers:
+        if psn not in db_drivers:
+            # Fahrer suchen
+            try:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT driver_id FROM drivers WHERE psn_name = %s AND is_legacy = 0 LIMIT 1", (psn,))
+                        row = cur.fetchone()
+                        if row:
+                            driver_id = row["driver_id"]
+                            driver_count = get_registration_count(race_id)
+                            grid_count = calculate_grids(driver_count)
+                            max_drivers = grid_count * DRIVERS_PER_GRID
+                            on_waitlist = state.get("grid_locked") and driver_count >= max_drivers
+                            add_registration(race_id, driver_id, source="manual")
+                            add_log_entry(race_id, driver_id, "warteliste" if on_waitlist else "angemeldet")
+                            log.info(f"PULL_MODE: {psn} angemeldet")
+                            if on_waitlist:
+                                await send_waitlist_msg([psn])
+                            new_count = get_registration_count(race_id)
+                            new_grids = calculate_grids(new_count)
+                            if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
+                                await send_grid_full_msg(new_grids)
+                                state["last_grid_count"] = new_grids
+                            changed = True
+            except Exception as e:
+                log.error(f"PULL_MODE: Fehler beim Anmelden von {psn}: {e}")
+
+    # Fahrer die in DB aber nicht im Sheet → abmelden
+    for psn, driver_id in db_drivers.items():
+        if psn not in sheet_drivers:
+            try:
+                driver_count = get_registration_count(race_id)
+                grid_count = calculate_grids(driver_count)
+                max_drivers = grid_count * DRIVERS_PER_GRID
+                was_on_waitlist = driver_count > max_drivers
+                remove_registration(race_id, driver_id)
+                action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
+                add_log_entry(race_id, driver_id, action)
+                log.info(f"PULL_MODE: {psn} abgemeldet")
+                if was_on_waitlist:
+                    all_regs = get_all_registrations(race_id)
+                    waitlist = all_regs[max_drivers-1:]
+                    if waitlist:
+                        moved = waitlist[0]
+                        add_log_entry(race_id, moved["driver_id"], "nachgerueckt")
+                        await send_moved_up_msg([moved["psn_name"]])
+                changed = True
+            except Exception as e:
+                log.error(f"PULL_MODE: Fehler beim Abmelden von {psn}: {e}")
+
+    if changed:
+        await update_checkin_message()
+
+
 @tasks.loop(minutes=1)
 async def scheduler():
     global _last_tuesday_reset, _last_sunday_lock, _last_deadline_check
@@ -695,6 +788,10 @@ async def scheduler():
 
     if now.minute == 0:
         await update_checkin_message()
+
+    # PULL_MODE: minütlicher Sheet-Abgleich
+    if TEST_MODE and PULL_MODE:
+        await pull_mode_sync()
 
 # ─────────────────────────────────────────────
 # Orga-Commands
