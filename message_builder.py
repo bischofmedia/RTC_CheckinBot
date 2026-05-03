@@ -248,8 +248,20 @@ def build_track_stats_block(race: dict) -> str:
     if not track_id:
         return ""
     try:
-        from db import get_track_header_stats
-        stats = get_track_header_stats(track_id)
+        from db import get_track_header_stats, get_active_season_id
+        # Aktuelle Saison-Klasse ermitteln
+        season_class = None
+        try:
+            from db import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT class FROM seasons WHERE is_active = 1 LIMIT 1")
+                    row = cur.fetchone()
+                    if row:
+                        season_class = row.get("class")
+        except Exception:
+            pass
+        stats = get_track_header_stats(track_id, season_class)
     except Exception:
         return ""
 
