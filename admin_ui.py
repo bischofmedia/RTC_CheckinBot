@@ -351,10 +351,10 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import checkin_bot
-                # Channel-Cache sicherstellen via fetch falls get_channel None zurückgibt
-                if not self.bot.get_channel(checkin_bot.CHAN_CHECKIN):
-                    await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
-                await checkin_bot.update_checkin_message()
+                channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
+                if not channel:
+                    channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
+                await checkin_bot.update_checkin_message(channel=channel)
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 

@@ -197,7 +197,7 @@ def _save_msg_id(msg_id: int):
 # Channel-Nachricht aktualisieren
 # ─────────────────────────────────────────────
 
-async def update_checkin_message():
+async def update_checkin_message(channel=None):
     from message_builder import build_channel_message, build_log_section
     race = state.get("current_race")
     race_id = state.get("current_race_id")
@@ -214,7 +214,8 @@ async def update_checkin_message():
     embed = discord.Embed(description=log_text)
     embed.set_footer(text=f"Stand: {now_str} | Sync: {last_sync}")
 
-    channel = bot.get_channel(CHAN_CHECKIN)
+    if channel is None:
+        channel = bot.get_channel(CHAN_CHECKIN)
     if not channel:
         try:
             await bot.wait_until_ready()
