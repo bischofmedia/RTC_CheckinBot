@@ -12,6 +12,7 @@ Buttons (3 Rows à 2):
 
 Flow:
   Button → Fahrer-Pulldown (≤25) oder Buchstabenbereich → Fahrer-Pulldown → DB-Update
+  Alle Schritte editieren dieselbe ephemeral-Nachricht.
 
 Voraussetzungen in .env:
   CHAN_ADMIN                – Channel-ID für Admin-Nachrichten
@@ -193,51 +194,73 @@ def _filter_drivers(mode: str, drivers: list[dict], status_map: dict) -> list[di
 # Buchstabenbereich-Gruppierung
 # ---------------------------------------------------------------------------
 
-def _group_label(drivers: list[dict]) -> str:
-    """Label aus erstem und letztem PSN-Anfangsbuchstaben des Blocks (z.B. A–H)."""
-    first = drivers[0]["psn"].lstrip("|")[0].upper()
-    last  = drivers[-1]["psn"].lstrip("|")[0].upper()
-    return f"{first}–{last}" if first != last else first
-
-
 def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
     """
     Teilt Fahrerliste in Buchstabengruppen, max. 25 pro Gruppe, max. 5 Gruppen.
+    Labels: erster Block beginnt immer mit A, letzter endet immer mit Z.
+    Mittlere Blöcke zeigen den tatsächlichen Bereich (z.B. I–P).
     """
     buckets: dict[str, list] = {}
     for d in drivers:
         letter = d["psn"].lstrip("|")[0].upper()
+        if not letter.isalpha():
+            letter = "#"
         buckets.setdefault(letter, []).append(d)
 
     letters         = sorted(buckets.keys())
     groups          = []
     current_drivers = []
+    current_end     = ""
 
     for letter in letters:
         if current_drivers and len(current_drivers) + len(buckets[letter]) > max_per_group:
-            groups.append({"label": _group_label(current_drivers), "drivers": current_drivers})
+            groups.append({"end": current_end, "drivers": current_drivers})
             current_drivers = []
         current_drivers.extend(buckets[letter])
+        current_end = letter
 
     if current_drivers:
-        groups.append({"label": _group_label(current_drivers), "drivers": current_drivers})
+        groups.append({"end": current_end, "drivers": current_drivers})
 
     # Auf max. 5 Gruppen reduzieren
     while len(groups) > 5:
         merged = []
         for i in range(0, len(groups), 2):
             if i + 1 < len(groups):
-                combined = groups[i]["drivers"] + groups[i + 1]["drivers"]
-                merged.append({"label": _group_label(combined), "drivers": combined})
+                merged.append({
+                    "end":     groups[i + 1]["end"],
+                    "drivers": groups[i]["drivers"] + groups[i + 1]["drivers"],
+                })
             else:
                 merged.append(groups[i])
         groups = merged
 
-    return groups
+    # Labels setzen: erster Block A–X, letzter X–Z, mittlere X–Y
+    if not groups:
+        return []
+
+    result = []
+    for idx, g in enumerate(groups):
+        if len(groups) == 1:
+            label = "A–Z"
+        elif idx == 0:
+            label = f"A–{g['end']}"
+        elif idx == len(groups) - 1:
+            # Startbuchstabe = Nachfolger des letzten Buchstabens des vorherigen Blocks
+            prev_end  = groups[idx - 1]["end"]
+            start     = chr(ord(prev_end) + 1) if prev_end != "#" else "A"
+            label     = f"{start}–Z"
+        else:
+            prev_end  = groups[idx - 1]["end"]
+            start     = chr(ord(prev_end) + 1) if prev_end != "#" else "A"
+            label     = f"{start}–{g['end']}"
+        result.append({"label": label, "drivers": g["drivers"]})
+
+    return result
 
 
 # ---------------------------------------------------------------------------
-# Schritt 2: Fahrer-Select  ← muss vor DriverSelectView definiert sein!
+# Schritt 2: Fahrer-Select
 # ---------------------------------------------------------------------------
 
 class DriverSelect(discord.ui.Select):
@@ -333,9 +356,9 @@ class DriverSelect(discord.ui.Select):
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
         lines = changed + errors
-        await interaction.response.send_message(
-            "**Admin-Aktion abgeschlossen:**\n" + ("\n".join(lines) if lines else "Keine Änderungen."),
-            ephemeral=True,
+        await interaction.response.edit_message(
+            content="**Admin-Aktion abgeschlossen:**\n" + ("\n".join(lines) if lines else "Keine Änderungen."),
+            view=None,
         )
 
 
@@ -362,7 +385,6 @@ class RangeSelect(discord.ui.Select):
         super().__init__(placeholder="Buchstabenbereich wählen…", options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
         idx     = int(self.values[0])
         drivers = self.ranges[idx]["drivers"]
 
@@ -374,16 +396,16 @@ class RangeSelect(discord.ui.Select):
 
         filtered = _filter_drivers(self.mode, drivers, status_map)
         if not filtered:
-            await interaction.followup.send(
-                "Keine passenden Fahrer in diesem Bereich.", ephemeral=True
+            await interaction.response.edit_message(
+                content="Keine passenden Fahrer in diesem Bereich.",
+                view=None,
             )
             return
 
         view = DriverSelectView(self.mode, filtered, self.bot)
-        await interaction.followup.send(
-            f"**{MODE_LABELS[self.mode]}** – Fahrer auswählen:",
+        await interaction.response.edit_message(
+            content=f"**{MODE_LABELS[self.mode]}** – Fahrer auswählen:",
             view=view,
-            ephemeral=True,
         )
 
 
@@ -397,66 +419,66 @@ class RangeSelectView(discord.ui.View):
 # Admin-Views (mit/ohne Anmelden-Buttons)
 # ---------------------------------------------------------------------------
 
+async def _handle_mode(interaction: discord.Interaction, mode: str):
+    """Gemeinsame Handler-Logik für beide Admin-Views."""
+    try:
+        all_drivers = fetch_drivers_from_sheet()
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ Sheet-Fehler: {e}", ephemeral=True)
+        return
+
+    db = get_db()
+    try:
+        status_map = fetch_all_status(db, [d["psn"] for d in all_drivers])
+    finally:
+        db.close()
+
+    filtered = _filter_drivers(mode, all_drivers, status_map)
+    if not filtered:
+        await interaction.response.send_message(
+            f"Keine Fahrer für **{MODE_LABELS[mode]}** verfügbar.", ephemeral=True
+        )
+        return
+
+    bot = interaction.client
+    if len(filtered) <= 25:
+        view = DriverSelectView(mode, filtered, bot)
+        await interaction.response.send_message(
+            f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
+            view=view, ephemeral=True,
+        )
+    else:
+        ranges = build_ranges(filtered)
+        view   = RangeSelectView(mode, ranges, bot)
+        await interaction.response.send_message(
+            f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
+            view=view, ephemeral=True,
+        )
+
+
 class AdminViewFull(discord.ui.View):
     """Alle 6 Buttons — wenn ein Rennen am nächsten Montag ansteht."""
 
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _handle(self, interaction: discord.Interaction, mode: str):
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            all_drivers = fetch_drivers_from_sheet()
-        except Exception as e:
-            await interaction.followup.send(f"⚠️ Sheet-Fehler: {e}", ephemeral=True)
-            return
-
-        db = get_db()
-        try:
-            status_map = fetch_all_status(db, [d["psn"] for d in all_drivers])
-        finally:
-            db.close()
-
-        filtered = _filter_drivers(mode, all_drivers, status_map)
-        if not filtered:
-            await interaction.followup.send(
-                f"Keine Fahrer für **{MODE_LABELS[mode]}** verfügbar.", ephemeral=True
-            )
-            return
-
-        bot = interaction.client
-        if len(filtered) <= 25:
-            view = DriverSelectView(mode, filtered, bot)
-            await interaction.followup.send(
-                f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
-                view=view, ephemeral=True,
-            )
-        else:
-            ranges = build_ranges(filtered)
-            view   = RangeSelectView(mode, ranges, bot)
-            await interaction.followup.send(
-                f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
-                view=view, ephemeral=True,
-            )
-
     @discord.ui.button(label="✅ Anmelden",    style=discord.ButtonStyle.success,   custom_id="adm_anmelden",   row=0)
-    async def btn_anmelden(self, i, b):    await self._handle(i, "anmelden")
+    async def btn_anmelden(self, i, b):    await _handle_mode(i, "anmelden")
 
     @discord.ui.button(label="❌ Abmelden",    style=discord.ButtonStyle.danger,    custom_id="adm_abmelden",   row=0)
-    async def btn_abmelden(self, i, b):    await self._handle(i, "abmelden")
+    async def btn_abmelden(self, i, b):    await _handle_mode(i, "abmelden")
 
     @discord.ui.button(label="⭐ Abo an",      style=discord.ButtonStyle.primary,   custom_id="adm_abo_an",     row=1)
-    async def btn_abo_an(self, i, b):      await self._handle(i, "abo_an")
+    async def btn_abo_an(self, i, b):      await _handle_mode(i, "abo_an")
 
     @discord.ui.button(label="⬜ Abo aus",     style=discord.ButtonStyle.secondary, custom_id="adm_abo_aus",    row=1)
-    async def btn_abo_aus(self, i, b):     await self._handle(i, "abo_aus")
+    async def btn_abo_aus(self, i, b):     await _handle_mode(i, "abo_aus")
 
     @discord.ui.button(label="🔒 Sperren",    style=discord.ButtonStyle.danger,    custom_id="adm_sperren",    row=2)
-    async def btn_sperren(self, i, b):     await self._handle(i, "sperren")
+    async def btn_sperren(self, i, b):     await _handle_mode(i, "sperren")
 
     @discord.ui.button(label="🔓 Entsperren", style=discord.ButtonStyle.success,   custom_id="adm_entsperren", row=2)
-    async def btn_entsperren(self, i, b):  await self._handle(i, "entsperren")
+    async def btn_entsperren(self, i, b):  await _handle_mode(i, "entsperren")
 
 
 class AdminViewAboOnly(discord.ui.View):
@@ -465,54 +487,17 @@ class AdminViewAboOnly(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def _handle(self, interaction: discord.Interaction, mode: str):
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            all_drivers = fetch_drivers_from_sheet()
-        except Exception as e:
-            await interaction.followup.send(f"⚠️ Sheet-Fehler: {e}", ephemeral=True)
-            return
-
-        db = get_db()
-        try:
-            status_map = fetch_all_status(db, [d["psn"] for d in all_drivers])
-        finally:
-            db.close()
-
-        filtered = _filter_drivers(mode, all_drivers, status_map)
-        if not filtered:
-            await interaction.followup.send(
-                f"Keine Fahrer für **{MODE_LABELS[mode]}** verfügbar.", ephemeral=True
-            )
-            return
-
-        bot = interaction.client
-        if len(filtered) <= 25:
-            view = DriverSelectView(mode, filtered, bot)
-            await interaction.followup.send(
-                f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
-                view=view, ephemeral=True,
-            )
-        else:
-            ranges = build_ranges(filtered)
-            view   = RangeSelectView(mode, ranges, bot)
-            await interaction.followup.send(
-                f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
-                view=view, ephemeral=True,
-            )
-
     @discord.ui.button(label="⭐ Abo an",      style=discord.ButtonStyle.primary,   custom_id="adm_abo_an_p",     row=0)
-    async def btn_abo_an(self, i, b):      await self._handle(i, "abo_an")
+    async def btn_abo_an(self, i, b):      await _handle_mode(i, "abo_an")
 
     @discord.ui.button(label="⬜ Abo aus",     style=discord.ButtonStyle.secondary, custom_id="adm_abo_aus_p",    row=0)
-    async def btn_abo_aus(self, i, b):     await self._handle(i, "abo_aus")
+    async def btn_abo_aus(self, i, b):     await _handle_mode(i, "abo_aus")
 
     @discord.ui.button(label="🔒 Sperren",    style=discord.ButtonStyle.danger,    custom_id="adm_sperren_p",    row=1)
-    async def btn_sperren(self, i, b):     await self._handle(i, "sperren")
+    async def btn_sperren(self, i, b):     await _handle_mode(i, "sperren")
 
     @discord.ui.button(label="🔓 Entsperren", style=discord.ButtonStyle.success,   custom_id="adm_entsperren_p", row=1)
-    async def btn_entsperren(self, i, b):  await self._handle(i, "entsperren")
+    async def btn_entsperren(self, i, b):  await _handle_mode(i, "entsperren")
 
 
 # ---------------------------------------------------------------------------
