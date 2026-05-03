@@ -217,6 +217,7 @@ async def update_checkin_message():
     channel = bot.get_channel(CHAN_CHECKIN)
     if not channel:
         try:
+            await bot.wait_until_ready()
             channel = await bot.fetch_channel(CHAN_CHECKIN)
         except Exception as e:
             log.error(f"CHAN_CHECKIN {CHAN_CHECKIN} nicht gefunden: {e}")
