@@ -759,28 +759,32 @@ async def pull_mode_sync():
         current_regs = get_all_registrations(race_id)
         db_drivers = {r["psn_name"]: r["driver_id"] for r in current_regs}
 
-        # Alle PSN-Namen aus DB laden für schnelle Suche
+        # Alle Fahrer aus DB: discord_name -> driver_id, driver_id -> psn_name
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT driver_id, psn_name FROM drivers WHERE is_legacy = 0")
-                all_drivers = {row["psn_name"]: row["driver_id"] for row in cur.fetchall()}
+                cur.execute("SELECT driver_id, psn_name, discord_name FROM drivers WHERE is_legacy = 0")
+                rows = cur.fetchall()
+                nick_to_id = {row["discord_name"]: row["driver_id"] for row in rows if row["discord_name"]}
+                id_to_psn = {row["driver_id"]: row["psn_name"] for row in rows}
 
         changed = False
         waitlist_drivers = []
         nachrücker = []
 
         # Fahrer im Sheet aber nicht in DB → anmelden
-        for psn in sheet_drivers:
-            if psn not in db_drivers:
-                driver_id = all_drivers.get(psn)
-                if driver_id:
+        for nick in sheet_drivers:
+            # DB-Anmeldungen haben psn_name als key, Sheet hat discord_name
+            driver_id = nick_to_id.get(nick)
+            psn = id_to_psn.get(driver_id, nick) if driver_id else nick
+            if driver_id and psn not in db_drivers:
+                if True:
                     driver_count = get_registration_count(race_id)
                     grid_count = calculate_grids(driver_count)
                     max_drivers = grid_count * DRIVERS_PER_GRID
                     on_waitlist = state.get("grid_locked") and driver_count >= max_drivers
                     add_registration(race_id, driver_id, source="manual")
                     add_log_entry(race_id, driver_id, "warteliste" if on_waitlist else "angemeldet")
-                    log.info(f"PULL_MODE: {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
+                    log.info(f"PULL_MODE: {nick} -> {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
                     if on_waitlist:
                         waitlist_drivers.append(psn)
                     new_count = get_registration_count(race_id)
@@ -789,8 +793,8 @@ async def pull_mode_sync():
                         await send_grid_full_msg(new_grids)
                         state["last_grid_count"] = new_grids
                     changed = True
-                else:
-                    log.warning(f"PULL_MODE: Fahrer nicht gefunden: {psn}")
+            elif not driver_id:
+                log.warning(f"PULL_MODE: Nick nicht gefunden: {nick}")
 
         # Fahrer in DB aber nicht im Sheet → abmelden
         for psn, driver_id in list(db_drivers.items()):

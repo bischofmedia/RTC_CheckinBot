@@ -41,7 +41,8 @@ def sync_registrations_to_sheet(race_id: int):
 
     try:
         registrations = get_all_registrations(race_id)
-        psn_names = [[r["psn_name"]] for r in registrations]
+        # Discord-Nicks schreiben (die Tabelle wandelt sie in PSN-Namen um)
+        discord_names = [[r["discord_name"] or r["psn_name"]] for r in registrations]
 
         client = _get_sheet_client()
         sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
@@ -51,7 +52,7 @@ def sync_registrations_to_sheet(race_id: int):
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now_str = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
-        driver_list = "\n".join(r[0] for r in psn_names)
+        driver_list = "\n".join(r[0] for r in discord_names)
 
         ws.update(range_name="B1", values=[[f"Letzte Änderung:\n{now_str} Uhr"]], value_input_option="USER_ENTERED")
         ws.update(range_name="Q1", values=[[driver_list]], value_input_option="USER_ENTERED")
@@ -62,7 +63,7 @@ def sync_registrations_to_sheet(race_id: int):
         import subprocess
         sync_ts = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M")
         save_state_value("last_sheet_sync", sync_ts)
-        log.info(f"Sheet-Sync: {len(psn_names)} Fahrer übertragen.")
+        log.info(f"Sheet-Sync: {len(discord_names)} Fahrer übertragen.")
 
         # Grid-DB-Sync (wie Apollo Grabber)
         subprocess.Popen(
