@@ -56,6 +56,10 @@ def sync_registrations_to_sheet(race_id: int):
 
         ws.update(range_name="B1", values=[[f"Letzte Änderung:\n{now_str} Uhr"]], value_input_option="USER_ENTERED")
         ws.update(range_name="Q1", values=[[driver_list]], value_input_option="USER_ENTERED")
+        # D1: Anzahl der Grids
+        from checkin_bot import calculate_grids
+        grid_count = calculate_grids(len(discord_names))
+        ws.update(range_name="D1", values=[[grid_count]], value_input_option="USER_ENTERED")
 
         from datetime import datetime
         from zoneinfo import ZoneInfo

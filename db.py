@@ -237,6 +237,14 @@ def remove_registration(race_id: int, driver_id: int):
             """, (race_id, driver_id))
 
 
+def clear_log(race_id: int):
+    """Leert den Log für ein Rennen."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM checkin_log WHERE race_id = %s", (race_id,))
+        conn.commit()
+
+
 def clear_registrations(race_id: int):
     """Löscht alle Anmeldungen für ein Rennen (Reset)."""
     with get_connection() as conn:

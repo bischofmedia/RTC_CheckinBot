@@ -601,7 +601,7 @@ async def send_sunday_msg():
 
 async def tuesday_reset():
     from db import (
-        get_next_monday_race, clear_registrations,
+        get_next_monday_race, clear_registrations, clear_log,
         get_all_abos, add_registration, add_log_entry, save_state
     )
     from sheets import sync_registrations_to_sheet, clear_lobby_codes_sheet
@@ -673,6 +673,7 @@ async def tuesday_reset():
         state["current_race"] = race
         save_state({"current_race_id": race_id})
 
+        clear_log(race_id)
         clear_registrations(race_id)
 
         abos = get_all_abos()
