@@ -2,7 +2,8 @@
 admin_ui.py – RTC CheckinBot Admin-UI Cog
 
 Postet eine persistente Admin-Nachricht in CHAN_ADMIN.
-Wird beim Bot-Start und jeden Dienstag um 10:00 Uhr (Berlin) aktualisiert.
+Wird beim Bot-Start (via on_ready in checkin_bot.py) und jeden Dienstag
+um 10:00 Uhr (Berlin) aktualisiert.
 
 Buttons (3 Rows à 2):
   Row 0: ✅ Anmelden    ❌ Abmelden      (nur wenn Rennen am nächsten Montag)
@@ -20,10 +21,13 @@ Voraussetzungen in .env:
   GOOGLE_SHEETS_ID          – Spreadsheet-ID
   GOOGLE_CREDENTIALS_FILE   – Pfad zur Service-Account-JSON
 
-Einbinden in checkin_bot.py (nach bot = commands.Bot(...)):
+Einbinden in checkin_bot.py:
   async def setup_hook():
       await bot.load_extension("admin_ui")
   bot.setup_hook = setup_hook
+
+  # In on_ready:
+  await update_admin_message(bot)
 
 SQL-Voraussetzung (einmalig ausführen):
   ALTER TABLE `drivers` ADD COLUMN `abo_locked` tinyint(1) NOT NULL DEFAULT 0;
@@ -98,8 +102,6 @@ def fetch_all_status(db, psn_names: list[str]) -> dict[str, dict]:
     """
     Gibt pro PSN-Name zurück:
       driver_id, registered (bool), abo (bool), locked (bool)
-    registered = Eintrag in checkin_registrations (Tabelle enthält immer
-                 nur das aktuelle Rennen, race_id wird nicht ausgewertet).
     """
     id_map = fetch_driver_ids_by_psn(db, psn_names)
     if not id_map:
@@ -256,8 +258,9 @@ def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 class DriverSelect(discord.ui.Select):
-    def __init__(self, mode: str, drivers: list[dict]):
+    def __init__(self, mode: str, drivers: list[dict], bot: commands.Bot):
         self.mode = mode
+        self.bot  = bot
 
         options = []
         for d in drivers:
@@ -342,7 +345,7 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import checkin_bot
-                await checkin_bot.update_checkin_message()
+                await checkin_bot.update_checkin_message(self.bot)
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
@@ -354,9 +357,9 @@ class DriverSelect(discord.ui.Select):
 
 
 class DriverSelectView(discord.ui.View):
-    def __init__(self, mode: str, drivers: list[dict]):
+    def __init__(self, mode: str, drivers: list[dict], bot: commands.Bot):
         super().__init__(timeout=120)
-        self.add_item(DriverSelect(mode, drivers))
+        self.add_item(DriverSelect(mode, drivers, bot))
 
 
 # ---------------------------------------------------------------------------
@@ -364,9 +367,10 @@ class DriverSelectView(discord.ui.View):
 # ---------------------------------------------------------------------------
 
 class RangeSelect(discord.ui.Select):
-    def __init__(self, mode: str, ranges: list[dict]):
+    def __init__(self, mode: str, ranges: list[dict], bot: commands.Bot):
         self.mode   = mode
         self.ranges = ranges
+        self.bot    = bot
 
         options = [
             discord.SelectOption(label=r["label"], value=str(i))
@@ -392,7 +396,7 @@ class RangeSelect(discord.ui.Select):
             )
             return
 
-        view = DriverSelectView(self.mode, filtered)
+        view = DriverSelectView(self.mode, filtered, self.bot)
         await interaction.followup.send(
             f"**{MODE_LABELS[self.mode]}** – Fahrer auswählen:",
             view=view,
@@ -401,9 +405,9 @@ class RangeSelect(discord.ui.Select):
 
 
 class RangeSelectView(discord.ui.View):
-    def __init__(self, mode: str, ranges: list[dict]):
+    def __init__(self, mode: str, ranges: list[dict], bot: commands.Bot):
         super().__init__(timeout=60)
-        self.add_item(RangeSelect(mode, ranges))
+        self.add_item(RangeSelect(mode, ranges, bot))
 
 
 # ---------------------------------------------------------------------------
@@ -438,15 +442,16 @@ class AdminViewFull(discord.ui.View):
             )
             return
 
+        bot = interaction.client
         if len(filtered) <= 25:
-            view = DriverSelectView(mode, filtered)
+            view = DriverSelectView(mode, filtered, bot)
             await interaction.followup.send(
                 f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
                 view=view, ephemeral=True,
             )
         else:
             ranges = build_ranges(filtered)
-            view   = RangeSelectView(mode, ranges)
+            view   = RangeSelectView(mode, ranges, bot)
             await interaction.followup.send(
                 f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
                 view=view, ephemeral=True,
@@ -499,15 +504,16 @@ class AdminViewAboOnly(discord.ui.View):
             )
             return
 
+        bot = interaction.client
         if len(filtered) <= 25:
-            view = DriverSelectView(mode, filtered)
+            view = DriverSelectView(mode, filtered, bot)
             await interaction.followup.send(
                 f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
                 view=view, ephemeral=True,
             )
         else:
             ranges = build_ranges(filtered)
-            view   = RangeSelectView(mode, ranges)
+            view   = RangeSelectView(mode, ranges, bot)
             await interaction.followup.send(
                 f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
                 view=view, ephemeral=True,
@@ -626,7 +632,7 @@ async def update_admin_message(bot: commands.Bot, force_repost: bool = False) ->
     chan_id = int(os.environ["CHAN_ADMIN"])
     channel = bot.get_channel(chan_id)
     if not channel:
-        log.error("CHAN_ADMIN %s nicht gefunden – Bot noch nicht ready?", chan_id)
+        log.error("CHAN_ADMIN %s nicht gefunden.", chan_id)
         return
 
     db = get_db()
@@ -655,7 +661,6 @@ async def update_admin_message(bot: commands.Bot, force_repost: bool = False) ->
 class AdminUI(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Persistente Views registrieren damit Buttons nach Neustart funktionieren
         bot.add_view(AdminViewFull())
         bot.add_view(AdminViewAboOnly())
         self.tuesday_update.start()
