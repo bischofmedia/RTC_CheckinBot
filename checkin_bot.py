@@ -12,7 +12,7 @@ from logging.handlers import RotatingFileHandler
 from zoneinfo import ZoneInfo
 
 import discord
-from discord.ext import tasks
+from discord.ext import tasks, commands
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path="/home/ubuntu/RTC_CheckinBot/.env")
@@ -137,7 +137,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ─────────────────────────────────────────────
 # Hilfsfunktionen
@@ -618,9 +618,9 @@ async def tuesday_reset():
                 # misses prüfen
                 with get_connection() as conn:
                     with conn.cursor() as cur:
-                        cur.execute("SELECT misses, discord_id FROM drivers WHERE driver_id = %s", (driver_id,))
+                        cur.execute("SELECT misses, abo_locked, discord_id FROM drivers WHERE driver_id = %s", (driver_id,))
                         row = cur.fetchone()
-                        if row and row["misses"] >= MAX_MISSES:
+                        if row and (row["misses"] >= MAX_MISSES or row.get("abo_locked")):
                             remove_abo(driver_id)
                             log.info(f"Dauerabo entzogen: driver_id={driver_id} (misses={row['misses']})")
                             # DM an Fahrer senden
@@ -928,6 +928,13 @@ async def on_message(message: discord.Message):
 # ─────────────────────────────────────────────
 # Bot Events
 # ─────────────────────────────────────────────
+
+async def setup_hook():
+    await bot.load_extension("admin_ui")
+    log.info("admin_ui Cog geladen.")
+
+bot.setup_hook = setup_hook
+
 
 @bot.event
 async def on_ready():
