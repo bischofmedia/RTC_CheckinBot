@@ -763,10 +763,26 @@ async def pull_mode_sync():
         # Alle Fahrer aus DB: discord_name -> driver_id, driver_id -> psn_name
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT driver_id, psn_name, discord_name FROM drivers WHERE is_legacy = 0")
+                import json
+                cur.execute("SELECT driver_id, psn_name, discord_name, discord_name_history FROM drivers WHERE is_legacy = 0")
                 rows = cur.fetchall()
-                nick_to_id = {row["discord_name"]: row["driver_id"] for row in rows if row["discord_name"]}
-                id_to_psn = {row["driver_id"]: row["psn_name"] for row in rows}
+                nick_to_id = {}
+                id_to_psn = {}
+                for row in rows:
+                    did = row["driver_id"]
+                    id_to_psn[did] = row["psn_name"]
+                    if row["discord_name"]:
+                        nick_to_id[row["discord_name"]] = did
+                    # Auch discord_name_history durchsuchen
+                    if row.get("discord_name_history"):
+                        try:
+                            history = json.loads(row["discord_name_history"])
+                            if isinstance(history, list):
+                                for old_nick in history:
+                                    if old_nick and old_nick not in nick_to_id:
+                                        nick_to_id[old_nick] = did
+                        except Exception:
+                            pass
 
         # Sheet-Fahrer als driver_id Set
         sheet_driver_ids = set()

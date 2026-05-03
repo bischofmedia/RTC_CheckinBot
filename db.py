@@ -118,15 +118,32 @@ def get_driver_by_discord_id(discord_id: str) -> dict | None:
 
 
 def get_driver_by_nickname(nickname: str) -> dict | None:
-    """Sucht einen Fahrer anhand des Server-Nicknamens (discord_name)."""
+    """Sucht einen Fahrer anhand des Server-Nicknamens (discord_name) oder name_history."""
+    import json
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Erst direkte Suche
             cur.execute("""
                 SELECT * FROM drivers
                 WHERE discord_name = %s AND is_legacy = 0
                 LIMIT 1
             """, (nickname,))
-            return cur.fetchone()
+            row = cur.fetchone()
+            if row:
+                return row
+            # Dann discord_name_history durchsuchen
+            cur.execute("""
+                SELECT * FROM drivers
+                WHERE discord_name_history IS NOT NULL AND is_legacy = 0
+            """)
+            for driver in cur.fetchall():
+                try:
+                    history = json.loads(driver["discord_name_history"])
+                    if isinstance(history, list) and nickname in history:
+                        return driver
+                except Exception:
+                    pass
+            return None
 
 
 def update_driver_discord_id(driver_id: int, discord_id: str):
