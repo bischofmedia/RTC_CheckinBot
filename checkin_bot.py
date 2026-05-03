@@ -973,6 +973,11 @@ async def on_ready():
 
     await update_checkin_message()
     scheduler.start()
+    try:
+        from admin_ui import update_admin_message
+        await update_admin_message(bot)
+    except Exception as e:
+        log.error(f"Admin-UI Update fehlgeschlagen: {e}")
     log.info("Bootstrap abgeschlossen.")
 
 # ─────────────────────────────────────────────

@@ -653,8 +653,7 @@ class AdminUI(commands.Cog):
         self.tuesday_update.start()
 
     async def cog_load(self):
-        await self.bot.wait_until_ready()
-        await update_admin_message(self.bot)
+        pass  # Start-Update erfolgt via on_ready in checkin_bot.py
 
     def cog_unload(self):
         self.tuesday_update.cancel()
