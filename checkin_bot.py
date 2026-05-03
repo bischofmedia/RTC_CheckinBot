@@ -82,6 +82,7 @@ REGISTRATION_DEADLINE          = _env("REGISTRATION_DEADLINE", "20:45")
 LOBBY_OPEN                     = _env("LOBBY_OPEN", "20:30")
 TEST_MODE                      = _env("TEST_MODE", "false").lower() == "true"
 PULL_MODE                      = _env("PULL_MODE", "false").lower() == "true"
+MAX_MISSES                     = _env_int("MAX_MISSES", 3)
 
 ENABLE_EXTRA_GRID     = _env_int("ENABLE_EXTRA_GRID", 0)
 EXTRA_GRID_THRESHOLD  = _env_int("EXTRA_GRID_THRESHOLD", 10)
@@ -606,6 +607,43 @@ async def tuesday_reset():
     from sheets import sync_registrations_to_sheet, clear_lobby_codes_sheet
 
     log.info("Dienstags-Reset gestartet.")
+
+    # ── MAX_MISSES Check: Dauerabo entziehen ──────────────────────────────
+    if MAX_MISSES > 0:
+        try:
+            from db import get_all_abos, remove_abo, get_connection
+            abos = get_all_abos()
+            for abo in abos:
+                driver_id = abo["driver_id"]
+                # misses prüfen
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT misses, discord_id FROM drivers WHERE driver_id = %s", (driver_id,))
+                        row = cur.fetchone()
+                        if row and row["misses"] >= MAX_MISSES:
+                            remove_abo(driver_id)
+                            log.info(f"Dauerabo entzogen: driver_id={driver_id} (misses={row['misses']})")
+                            # DM an Fahrer senden
+                            if row.get("discord_id"):
+                                try:
+                                    user = await bot.fetch_user(int(row["discord_id"]))
+                                    await user.send(
+                                        "⚠️ **Automatische Abmeldung**\n\n"
+                                        "Aufgrund Deiner Abwesenheit im letzten Rennen wurdest Du von der "
+                                        "automatischen Anmeldeliste gestrichen. "
+                                        "Bitte melde Dich zukünftig wieder selbst zu den Rennen an."
+                                    )
+                                except Exception as e:
+                                    log.warning(f"DM an {driver_id} fehlgeschlagen: {e}")
+                                    # Orga informieren
+                                    orga_ch = bot.get_channel(CHAN_ORGA)
+                                    if orga_ch:
+                                        await orga_ch.send(
+                                            f"⚠️ Dauerabo entzogen: **{abo['psn_name']}** "
+                                            f"(misses={row['misses']}) – DM konnte nicht gesendet werden."
+                                        )
+        except Exception as e:
+            log.error(f"MAX_MISSES Check fehlgeschlagen: {e}")
 
     # Lobby-Code-Channel leeren (mit eigenem Token)
     if not TEST_MODE:
