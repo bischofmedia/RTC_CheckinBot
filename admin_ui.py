@@ -338,6 +338,14 @@ class DriverSelect(discord.ui.Select):
         finally:
             db.close()
 
+        # Checkin-Nachricht aktualisieren wenn An-/Abmeldungen geändert wurden
+        if self.mode in ("anmelden", "abmelden") and changed:
+            try:
+                import checkin_bot
+                await checkin_bot.update_checkin_message()
+            except Exception as e:
+                errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
+
         lines = changed + errors
         await interaction.response.send_message(
             "**Admin-Aktion abgeschlossen:**\n" + ("\n".join(lines) if lines else "Keine Änderungen."),

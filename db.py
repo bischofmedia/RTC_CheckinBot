@@ -186,8 +186,8 @@ def get_registration(race_id: int, driver_id: int) -> dict | None:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT * FROM checkin_registrations
-                WHERE race_id = %s AND driver_id = %s
-            """, (race_id, driver_id))
+                WHERE driver_id = %s
+            """, (driver_id,))
             return cur.fetchone()
 
 
@@ -199,9 +199,8 @@ def get_all_registrations(race_id: int) -> list:
                 SELECT cr.*, d.psn_name, d.discord_id, d.discord_name
                 FROM checkin_registrations cr
                 JOIN drivers d ON d.driver_id = cr.driver_id
-                WHERE cr.race_id = %s
                 ORDER BY cr.registered_at ASC
-            """, (race_id,))
+            """)
             return cur.fetchall()
 
 
@@ -211,8 +210,7 @@ def get_registration_count(race_id: int) -> int:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT COUNT(*) AS cnt FROM checkin_registrations
-                WHERE race_id = %s
-            """, (race_id,))
+            """)
             return cur.fetchone()["cnt"]
 
 
@@ -221,9 +219,9 @@ def add_registration(race_id: int, driver_id: int, source: str = "manual"):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT IGNORE INTO checkin_registrations (race_id, driver_id, source, registered_at)
-                VALUES (%s, %s, %s, %s)
-            """, (race_id, driver_id, source, datetime.now(BERLIN)))
+                INSERT IGNORE INTO checkin_registrations (driver_id, source, registered_at)
+                VALUES (%s, %s, %s)
+            """, (driver_id, source, datetime.now(BERLIN)))
     set_driver_active(driver_id)
 
 
@@ -233,15 +231,15 @@ def remove_registration(race_id: int, driver_id: int):
         with conn.cursor() as cur:
             cur.execute("""
                 DELETE FROM checkin_registrations
-                WHERE race_id = %s AND driver_id = %s
-            """, (race_id, driver_id))
+                WHERE driver_id = %s
+            """, (driver_id,))
 
 
-def clear_log(race_id: int):
-    """Leert den Log für ein Rennen."""
+def clear_log():
+    """Leert den kompletten Log."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM checkin_log WHERE race_id = %s", (race_id,))
+            cur.execute("DELETE FROM checkin_log")
         conn.commit()
 
 
@@ -249,24 +247,22 @@ def clear_registrations(race_id: int):
     """Löscht alle Anmeldungen für ein Rennen (Reset)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                DELETE FROM checkin_registrations WHERE race_id = %s
-            """, (race_id,))
-    log.info(f"Anmeldeliste für race_id={race_id} geleert.")
+            cur.execute("DELETE FROM checkin_registrations")
+    log.info("Anmeldeliste geleert.")
 
 
 # ─────────────────────────────────────────────
 # Log
 # ─────────────────────────────────────────────
 
-def add_log_entry(race_id: int, driver_id: int, action: str):
+def add_log_entry(driver_id: int, action: str):
     """Schreibt einen Eintrag ins Anmelde-Log."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO checkin_log (race_id, driver_id, action, timestamp)
-                VALUES (%s, %s, %s, %s)
-            """, (race_id, driver_id, action, datetime.now(BERLIN)))
+                INSERT INTO checkin_log (driver_id, action, timestamp)
+                VALUES (%s, %s, %s)
+            """, (driver_id, action, datetime.now(BERLIN)))
 
 
 def get_log_entries(race_id: int) -> list:
@@ -277,9 +273,8 @@ def get_log_entries(race_id: int) -> list:
                 SELECT cl.*, d.psn_name, d.discord_name
                 FROM checkin_log cl
                 JOIN drivers d ON d.driver_id = cl.driver_id
-                WHERE cl.race_id = %s
                 ORDER BY cl.timestamp ASC
-            """, (race_id,))
+            """)
             return cur.fetchall()
 
 
