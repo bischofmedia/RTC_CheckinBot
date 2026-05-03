@@ -351,6 +351,9 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import checkin_bot
+                # Channel-Cache sicherstellen via fetch falls get_channel None zurückgibt
+                if not self.bot.get_channel(checkin_bot.CHAN_CHECKIN):
+                    await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
                 await checkin_bot.update_checkin_message()
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
@@ -421,10 +424,13 @@ class RangeSelectView(discord.ui.View):
 
 async def _handle_mode(interaction: discord.Interaction, mode: str):
     """Gemeinsame Handler-Logik für beide Admin-Views."""
+    # Sofort defer damit Discord-Timeout (3s) nicht überschritten wird
+    await interaction.response.defer(ephemeral=True)
+
     try:
         all_drivers = fetch_drivers_from_sheet()
     except Exception as e:
-        await interaction.response.send_message(f"⚠️ Sheet-Fehler: {e}", ephemeral=True)
+        await interaction.followup.send(f"⚠️ Sheet-Fehler: {e}", ephemeral=True)
         return
 
     db = get_db()
@@ -435,7 +441,7 @@ async def _handle_mode(interaction: discord.Interaction, mode: str):
 
     filtered = _filter_drivers(mode, all_drivers, status_map)
     if not filtered:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Keine Fahrer für **{MODE_LABELS[mode]}** verfügbar.", ephemeral=True
         )
         return
@@ -443,14 +449,14 @@ async def _handle_mode(interaction: discord.Interaction, mode: str):
     bot = interaction.client
     if len(filtered) <= 25:
         view = DriverSelectView(mode, filtered, bot)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"**{MODE_LABELS[mode]}** – Fahrer auswählen:",
             view=view, ephemeral=True,
         )
     else:
         ranges = build_ranges(filtered)
         view   = RangeSelectView(mode, ranges, bot)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"**{MODE_LABELS[mode]}** – Buchstabenbereich wählen:",
             view=view, ephemeral=True,
         )
