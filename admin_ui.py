@@ -67,11 +67,6 @@ def get_db():
 
 
 def fetch_next_race(db) -> dict | None:
-    """
-    Gibt das nächste Rennen aus race_calendar zurück:
-      {"race_date": date, "track_name": str, "track_id": int}
-    oder None wenn kein zukünftiger Eintrag vorhanden.
-    """
     with db.cursor() as cur:
         cur.execute(
             """
@@ -99,10 +94,6 @@ def fetch_driver_ids_by_psn(db, psn_names: list[str]) -> dict[str, int]:
 
 
 def fetch_all_status(db, psn_names: list[str]) -> dict[str, dict]:
-    """
-    Gibt pro PSN-Name zurück:
-      driver_id, registered (bool), abo (bool), locked (bool)
-    """
     id_map = fetch_driver_ids_by_psn(db, psn_names)
     if not id_map:
         return {}
@@ -148,7 +139,6 @@ def fetch_drivers_from_sheet() -> list[dict]:
     """
     Liest alle Fahrer aus DB_drvr (ab Zeile 5, Header Zeile 4).
     Spalte C (Index 2) = PSN-Name, Spalte J (Index 9) = Discord-Nick.
-    Gibt Liste von {"psn": str, "nick": str} zurück, alphabetisch sortiert.
     """
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -162,9 +152,9 @@ def fetch_drivers_from_sheet() -> list[dict]:
 
     all_values = sheet.get_all_values()
     drivers = []
-    for row in all_values[4:]:   # Daten ab Zeile 5 (0-indexiert: Index 4+)
-        psn  = row[2].strip() if len(row) > 2 else ""   # Spalte C
-        nick = row[9].strip() if len(row) > 9 else ""   # Spalte J
+    for row in all_values[4:]:
+        psn  = row[2].strip() if len(row) > 2 else ""
+        nick = row[9].strip() if len(row) > 9 else ""
         if psn:
             drivers.append({"psn": psn, "nick": nick})
 
@@ -187,7 +177,6 @@ MODE_LABELS = {
 
 
 def _filter_drivers(mode: str, drivers: list[dict], status_map: dict) -> list[dict]:
-    """Gibt nur Fahrer zurück, auf die die Aktion sinnvoll anwendbar ist."""
     def ok(d):
         st = status_map.get(d["psn"], {})
         if mode == "anmelden":   return not st.get("registered")
@@ -201,11 +190,11 @@ def _filter_drivers(mode: str, drivers: list[dict], status_map: dict) -> list[di
 
 
 # ---------------------------------------------------------------------------
-# Buchstabenbereich-Gruppierung (nur wenn >25 Fahrer)
+# Buchstabenbereich-Gruppierung
 # ---------------------------------------------------------------------------
 
 def _group_label(drivers: list[dict]) -> str:
-    """Erstellt Label aus erstem und letztem PSN-Anfangsbuchstaben des Blocks (z.B. A–H)."""
+    """Label aus erstem und letztem PSN-Anfangsbuchstaben des Blocks (z.B. A–H)."""
     first = drivers[0]["psn"].lstrip("|")[0].upper()
     last  = drivers[-1]["psn"].lstrip("|")[0].upper()
     return f"{first}–{last}" if first != last else first
@@ -214,7 +203,6 @@ def _group_label(drivers: list[dict]) -> str:
 def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
     """
     Teilt Fahrerliste in Buchstabengruppen, max. 25 pro Gruppe, max. 5 Gruppen.
-    Labels zeigen immer ersten und letzten Anfangsbuchstaben des Blocks (z.B. A–H).
     """
     buckets: dict[str, list] = {}
     for d in drivers:
@@ -247,6 +235,12 @@ def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
 
     return groups
 
+
+# ---------------------------------------------------------------------------
+# Schritt 2: Fahrer-Select  ← muss vor DriverSelectView definiert sein!
+# ---------------------------------------------------------------------------
+
+class DriverSelect(discord.ui.Select):
     def __init__(self, mode: str, drivers: list[dict], bot: commands.Bot):
         self.mode = mode
         self.bot  = bot
@@ -532,47 +526,35 @@ def _next_monday() -> date:
 
 
 def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord.ui.View]:
-    """
-    Gibt (Embed, View) zurück passend zum nächsten Rennen.
-    """
     next_monday = _next_monday()
 
     if next_race and next_race["track_id"] != 0 and next_race["race_date"] == next_monday:
-        # Rennen am nächsten Montag → alle 6 Buttons
-        track_name = next_race["track_name"]
-        race_date  = next_race["race_date"]
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
             description=(
-                f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n\n"
+                f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n\n"
                 "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
                 "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
             ),
             color=discord.Color.blue(),
         )
-
         return embed, AdminViewFull()
 
     elif next_race and next_race["track_id"] != 0:
-        # Rennen eingetragen, aber nicht nächsten Montag → nur Abo/Sperre
-        track_name = next_race["track_name"]
-        race_date  = next_race["race_date"]
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
             description=(
-                f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n"
+                f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n"
                 f"*(kein Rennen am kommenden Montag)*\n\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
                 "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
             ),
             color=discord.Color.dark_grey(),
         )
-
         return embed, AdminViewAboOnly()
 
     elif next_race and next_race["track_id"] == 0:
-        # Pause
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
             description=(
@@ -582,11 +564,9 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.dark_grey(),
         )
-
         return embed, AdminViewAboOnly()
 
     else:
-        # Saisonende
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
             description=(
@@ -596,7 +576,6 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.dark_grey(),
         )
-
         return embed, AdminViewAboOnly()
 
 
@@ -613,11 +592,6 @@ async def find_admin_message(channel: discord.TextChannel) -> discord.Message | 
 
 
 async def update_admin_message(bot: commands.Bot, force_repost: bool = False) -> None:
-    """
-    Aktualisiert die Admin-Nachricht in CHAN_ADMIN.
-    Existiert sie noch nicht, wird sie gepostet.
-    Mit force_repost=True wird sie gelöscht und neu gepostet.
-    """
     chan_id = int(os.environ["CHAN_ADMIN"])
     channel = bot.get_channel(chan_id)
     if not channel:
