@@ -255,10 +255,10 @@ def build_track_stats_block(race: dict) -> str:
             from db import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT `class` FROM seasons WHERE is_active = 1 LIMIT 1")
+                    cur.execute("SELECT `class` AS season_class FROM seasons WHERE is_active = 1 LIMIT 1")
                     row = cur.fetchone()
                     if row:
-                        season_class = row.get("class")
+                        season_class = row.get("season_class")
         except Exception:
             pass
         stats = get_track_header_stats(track_id, season_class)

@@ -545,17 +545,17 @@ def get_track_header_stats(track_id: int) -> dict:
             top_vehicles = cur.fetchall()
 
             # Schnellste Rennrunde
-            cur.execute("""
+            cur.execute(f"""
                 SELECT r.fastest_lap_time, d.psn_name, s.name AS season_name,
                        gv.game AS game_name, gv.patch AS patch_version, gv.version_id
                 FROM races r
                 JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
                 JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN game_versions gv ON gv.version_id = r.version_id
-                WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL
+                WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL {class_filter}
                 ORDER BY r.fastest_lap_time ASC
                 LIMIT 1
-            """, (track_id,))
+            """, (track_id,) + params_class)
             record = cur.fetchone()
             # Patch-Version formatieren
             if record and record.get("game_name"):
