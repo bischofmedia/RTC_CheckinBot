@@ -201,6 +201,7 @@ async def update_checkin_message(channel=None):
     from message_builder import build_channel_message, build_log_section
     race = state.get("current_race")
     race_id = state.get("current_race_id")
+    log.info(f"update_checkin_message: race_id={race_id}, race={'OK' if race else 'None'}")
     try:
         header, show_buttons = build_channel_message(race_id=race_id, race=race)
         log_text = build_log_section(race_id) if race_id else "–"
