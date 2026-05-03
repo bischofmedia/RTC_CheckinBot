@@ -262,11 +262,11 @@ def build_track_stats_block(race: dict) -> str:
 
     if stats["top_winners"]:
         winners = ", ".join(f"{w['psn_name']} ({w['wins']}×)" for w in stats["top_winners"])
-        lines.append(f"🏆 Rekord-Sieger: {winners}")
+        lines.append(f"🏆 Rekordsieger: {winners}")
 
     if stats["top_vehicles"]:
-        cars = ", ".join(v["vehicle_name"] for v in stats["top_vehicles"])
-        lines.append(f"🚗 Top Fahrzeuge: {cars}")
+        cars = ", ".join(f"{v['vehicle_name']} ({v['cnt']}×)" for v in stats["top_vehicles"])
+        lines.append(f"🚗 Top used cars: {cars}")
 
     if stats.get("record") and stats["record"].get("fastest_lap_time"):
         r = stats["record"]
@@ -409,25 +409,26 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 stats = get_driver_track_stats(driver_id, track_id)
                 lines.append("")
                 lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
+        lines.append("*Handy quer, siehste mehr* 😉")
 
                 if stats["race_count"] == 0:
                     lines.append("Du bist diese Strecke noch nie gefahren.")
                 else:
-                    code_lines = ["Season    Datum      Grid  Pos  Ges       %  Fahrzeug"]
-                    code_lines.append("─" * 56)
+                    code_lines = ["Saison   Datum    Gr P  G      %  Auto"]
+                    code_lines.append("─" * 42)
                     for result in stats["top3"]:
                         try:
-                            season = str(result.get("season_name", "?"))[:8].ljust(8)
+                            season = str(result.get("season_name", "?"))[:7].ljust(7)
                             race_date = result.get("race_date", "")
-                            date_str = race_date.strftime("%d.%m.%y") if race_date else "?       "
-                            grid_id = str(result.get("grid_number", "?")).rjust(4)
-                            pos_grid = str(result.get("finish_pos_grid", "?")).rjust(3)
-                            pos_overall = str(result.get("finish_pos_overall", "?")).rjust(3)
+                            date_str = race_date.strftime("%d.%m.%y") if race_date else "?      "
+                            grid_id = str(result.get("grid_number", "?")).rjust(2)
+                            pos_grid = str(result.get("finish_pos_grid", "?")).rjust(2)
+                            pos_overall = str(result.get("finish_pos_overall", "?")).rjust(2)
                             pct = result.get("time_percent")
                             pct_str = f"{float(pct):.2f}%" if pct else "?"
-                            pct_str = pct_str.rjust(8)
-                            vehicle = str(result.get("vehicle_name", "?"))[:18]
-                            code_lines.append(f"{season}  {date_str}  {grid_id}  {pos_grid}  {pos_overall}  {pct_str}  {vehicle}")
+                            pct_str = pct_str.rjust(7)
+                            vehicle = str(result.get("vehicle_name", "?"))[:13]
+                            code_lines.append(f"{season} {date_str} {grid_id} {pos_grid} {pos_overall} {pct_str}  {vehicle}")
                         except Exception:
                             continue
                     lines.append("```\n" + "\n".join(code_lines) + "\n```")

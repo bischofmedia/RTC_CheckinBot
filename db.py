@@ -421,7 +421,8 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
             cur.execute("""
                 SELECT rr.finish_pos_grid, rr.finish_pos_overall,
                        g.grid_number, rr.time_percent,
-                       v.name AS vehicle_name, s.name AS season_name,
+                       COALESCE(v.name_short, v.name) AS vehicle_name,
+                       s.name AS season_name,
                        s.season_id, r.race_date
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id

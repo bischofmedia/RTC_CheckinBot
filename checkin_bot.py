@@ -265,7 +265,7 @@ class CheckinView(discord.ui.View):
         else:
             await interaction.followup.send(response, ephemeral=True)
 
-    @discord.ui.button(label="Status", style=discord.ButtonStyle.secondary, custom_id="checkin_status")
+    @discord.ui.button(label="Info", style=discord.ButtonStyle.primary, custom_id="checkin_status")
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         response, _ = await handle_status(interaction)
