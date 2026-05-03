@@ -47,7 +47,7 @@ import pytz
 
 log = logging.getLogger("admin_ui")
 
-ADMIN_MSG_MARKER = "rtc-admin-ui-v1"
+ADMIN_EMBED_TITLE = "🏁 RTC CheckinBot – Admin-Verwaltung"
 BERLIN = pytz.timezone("Europe/Berlin")
 
 # ---------------------------------------------------------------------------
@@ -204,9 +204,17 @@ def _filter_drivers(mode: str, drivers: list[dict], status_map: dict) -> list[di
 # Buchstabenbereich-Gruppierung (nur wenn >25 Fahrer)
 # ---------------------------------------------------------------------------
 
+def _group_label(drivers: list[dict]) -> str:
+    """Erstellt Label aus erstem und letztem PSN-Anfangsbuchstaben des Blocks (z.B. A–H)."""
+    first = drivers[0]["psn"].lstrip("|")[0].upper()
+    last  = drivers[-1]["psn"].lstrip("|")[0].upper()
+    return f"{first}–{last}" if first != last else first
+
+
 def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
     """
     Teilt Fahrerliste in Buchstabengruppen, max. 25 pro Gruppe, max. 5 Gruppen.
+    Labels zeigen immer ersten und letzten Anfangsbuchstaben des Blocks (z.B. A–H).
     """
     buckets: dict[str, list] = {}
     for d in drivers:
@@ -215,49 +223,30 @@ def build_ranges(drivers: list[dict], max_per_group: int = 25) -> list[dict]:
 
     letters         = sorted(buckets.keys())
     groups          = []
-    current_letters = []
     current_drivers = []
 
     for letter in letters:
         if current_drivers and len(current_drivers) + len(buckets[letter]) > max_per_group:
-            groups.append({
-                "label":   f"{current_letters[0]}–{current_letters[-1]}" if len(current_letters) > 1 else current_letters[0],
-                "drivers": current_drivers,
-            })
-            current_letters = []
+            groups.append({"label": _group_label(current_drivers), "drivers": current_drivers})
             current_drivers = []
-        current_letters.append(letter)
         current_drivers.extend(buckets[letter])
 
     if current_drivers:
-        groups.append({
-            "label":   f"{current_letters[0]}–{current_letters[-1]}" if len(current_letters) > 1 else current_letters[0],
-            "drivers": current_drivers,
-        })
+        groups.append({"label": _group_label(current_drivers), "drivers": current_drivers})
 
     # Auf max. 5 Gruppen reduzieren
     while len(groups) > 5:
         merged = []
         for i in range(0, len(groups), 2):
             if i + 1 < len(groups):
-                first = groups[i]["label"].split("–")[0]
-                last  = groups[i + 1]["label"].split("–")[-1]
-                merged.append({
-                    "label":   f"{first}–{last}",
-                    "drivers": groups[i]["drivers"] + groups[i + 1]["drivers"],
-                })
+                combined = groups[i]["drivers"] + groups[i + 1]["drivers"]
+                merged.append({"label": _group_label(combined), "drivers": combined})
             else:
                 merged.append(groups[i])
         groups = merged
 
     return groups
 
-
-# ---------------------------------------------------------------------------
-# Schritt 2: Fahrer-Select
-# ---------------------------------------------------------------------------
-
-class DriverSelect(discord.ui.Select):
     def __init__(self, mode: str, drivers: list[dict], bot: commands.Bot):
         self.mode = mode
         self.bot  = bot
@@ -345,7 +334,7 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import checkin_bot
-                await checkin_bot.update_checkin_message(self.bot)
+                await checkin_bot.update_checkin_message()
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
@@ -553,7 +542,7 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
         track_name = next_race["track_name"]
         race_date  = next_race["race_date"]
         embed = discord.Embed(
-            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            title=ADMIN_EMBED_TITLE,
             description=(
                 f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n\n"
                 "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
@@ -562,7 +551,7 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.blue(),
         )
-        embed.set_footer(text=ADMIN_MSG_MARKER)
+
         return embed, AdminViewFull()
 
     elif next_race and next_race["track_id"] != 0:
@@ -570,7 +559,7 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
         track_name = next_race["track_name"]
         race_date  = next_race["race_date"]
         embed = discord.Embed(
-            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            title=ADMIN_EMBED_TITLE,
             description=(
                 f"**Nächstes Rennen:** {track_name} – {race_date.strftime('%d.%m.%Y')}\n"
                 f"*(kein Rennen am kommenden Montag)*\n\n"
@@ -579,13 +568,13 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.dark_grey(),
         )
-        embed.set_footer(text=ADMIN_MSG_MARKER)
+
         return embed, AdminViewAboOnly()
 
     elif next_race and next_race["track_id"] == 0:
         # Pause
         embed = discord.Embed(
-            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            title=ADMIN_EMBED_TITLE,
             description=(
                 "Diese Woche ist eine **Rennpause**. Keine Renn-Anmeldungen möglich.\n\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
@@ -593,13 +582,13 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.dark_grey(),
         )
-        embed.set_footer(text=ADMIN_MSG_MARKER)
+
         return embed, AdminViewAboOnly()
 
     else:
         # Saisonende
         embed = discord.Embed(
-            title="🏁 RTC CheckinBot – Admin-Verwaltung",
+            title=ADMIN_EMBED_TITLE,
             description=(
                 "Die Saison ist **beendet**. Keine Renn-Anmeldungen möglich.\n\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
@@ -607,7 +596,7 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
             ),
             color=discord.Color.dark_grey(),
         )
-        embed.set_footer(text=ADMIN_MSG_MARKER)
+
         return embed, AdminViewAboOnly()
 
 
@@ -618,7 +607,7 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
 async def find_admin_message(channel: discord.TextChannel) -> discord.Message | None:
     async for msg in channel.history(limit=50):
         if msg.author == channel.guild.me and msg.embeds:
-            if (msg.embeds[0].footer.text or "") == ADMIN_MSG_MARKER:
+            if msg.embeds[0].title == ADMIN_EMBED_TITLE:
                 return msg
     return None
 
