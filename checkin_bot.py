@@ -739,12 +739,21 @@ async def pull_mode_sync():
             sheet = client.open_by_key(os.environ["GOOGLE_SHEETS_ID"])
             ws = sheet.worksheet(os.environ.get("GOOGLE_SHEETS_TAB", "Apollo-Grabber"))
             cell_value = ws.acell("Q1").value or ""
-            sheet_drivers = set(n.strip() for n in cell_value.split("\n") if n.strip())
+            import re
+            def clean_psn(name: str) -> str:
+                name = name.strip()
+                name = name.replace("\\_", "_")
+                name = name.replace("\\|", "|")
+                # Emojis entfernen
+                name = re.sub(r"[\U00010000-\U0010ffff]", "", name, flags=re.UNICODE).strip()
+                return name
+            raw_names = [n.strip() for n in cell_value.split("\n") if n.strip()]
+            sheet_drivers = set(clean_psn(n) for n in raw_names if clean_psn(n))
         except Exception as e:
             log.error(f"PULL_MODE: Sheet-Lesefehler: {e}")
             return
 
-        log.info(f"PULL_MODE: {len(sheet_drivers)} Fahrer im Sheet gefunden.")
+        log.info(f"PULL_MODE: {len(sheet_drivers)} Fahrer im Sheet gefunden: {sheet_drivers}")
 
         # Aktuelle DB-Anmeldungen
         current_regs = get_all_registrations(race_id)
