@@ -521,9 +521,11 @@ class AdminViewAboOnly(discord.ui.View):
 # ---------------------------------------------------------------------------
 
 def _next_monday() -> date:
-    today      = date.today()
-    days_ahead = (7 - today.weekday()) % 7
-    return today + timedelta(days=days_ahead if days_ahead else 7)
+    today = date.today()
+    if today.weekday() == 0:   # heute ist Montag → Rennen ist heute
+        return today
+    days_ahead = 7 - today.weekday()
+    return today + timedelta(days=days_ahead)
 
 
 def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord.ui.View]:
