@@ -358,8 +358,7 @@ async def handle_register(interaction: discord.Interaction):
     max_capacity = grid_count * DRIVERS_PER_GRID if sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
     on_waitlist = driver_count >= max_capacity
 
-    add_registration(race_id, driver_id, source="manual")
-    add_log_entry(driver_id, "warteliste" if on_waitlist else "angemeldet")
+    add_registration(race_id, driver_id, source="manual", action="angemeldet")
 
     # Response sofort vorbereiten
     if on_waitlist:
@@ -419,10 +418,9 @@ async def handle_unregister(interaction: discord.Interaction):
     was_on_waitlist = driver_count > max_drivers
 
     all_regs = get_all_registrations(race_id) if was_on_waitlist else []
-    remove_registration(race_id, driver_id)
+    remove_registration(race_id, driver_id, source="manual")
 
     action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
-    add_log_entry(driver_id, action)
 
     # Response sofort vorbereiten
     if was_on_waitlist:
@@ -441,7 +439,6 @@ async def handle_unregister(interaction: discord.Interaction):
             waitlist_drivers = all_regs[max_drivers:]
             if waitlist_drivers:
                 moved_up = waitlist_drivers[0]
-                add_log_entry(moved_up["driver_id"], "nachgerueckt")
                 await send_moved_up_msg([moved_up.get("psn_name", "")])
         if not TEST_MODE:
             sync_registrations_to_sheet(race_id)
@@ -470,7 +467,6 @@ async def handle_abo_add(interaction: discord.Interaction):
 
     if race_id and not already_registered:
         # Nur Log-Eintrag wenn noch nicht angemeldet
-        add_log_entry(driver_id, "abo_angemeldet")
         add_registration(race_id, driver_id, source="abo")
         if not TEST_MODE:
             sync_registrations_to_sheet(race_id)
@@ -496,8 +492,6 @@ async def handle_abo_remove(interaction: discord.Interaction):
         return "ℹ️ Du hast keine aktive Daueranmeldung.", None
 
     remove_abo(driver_id)
-    if race_id:
-        add_log_entry(driver_id, "abo_abgemeldet")
 
     still_registered = race_id and get_registration(race_id, driver_id)
     if still_registered:
@@ -609,8 +603,8 @@ async def send_sunday_msg():
 
 async def tuesday_reset():
     from db import (
-        get_next_monday_race, clear_registrations, clear_log,
-        get_all_abos, add_registration, add_log_entry, save_state
+        get_next_monday_race, clear_registrations,
+        get_all_abos, add_registration, save_state
     )
     from sheets import sync_registrations_to_sheet, clear_lobby_codes_sheet
 
@@ -681,13 +675,11 @@ async def tuesday_reset():
         state["current_race"] = race
         save_state({"current_race_id": race_id})
 
-        clear_log()
         clear_registrations(race_id)
 
         abos = get_all_abos()
         for abo in abos:
             add_registration(race_id, abo["driver_id"], source="abo")
-            add_log_entry(abo["driver_id"], "abo_angemeldet")
         log.info(f"Dauerabo: {len(abos)} Fahrer eingetragen.")
 
         if not TEST_MODE:
@@ -817,8 +809,7 @@ async def pull_mode_sync():
                 sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
                 max_capacity = grid_count * DRIVERS_PER_GRID if sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
                 on_waitlist = driver_count >= max_capacity
-                add_registration(race_id, driver_id, source="manual")
-                add_log_entry(driver_id, "warteliste" if on_waitlist else "angemeldet")
+                add_registration(race_id, driver_id, source="manual", action="angemeldet")
                 log.info(f"PULL_MODE: {nick} -> {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
                 if on_waitlist:
                     waitlist_drivers.append(psn)
@@ -838,16 +829,14 @@ async def pull_mode_sync():
                 grid_count = calculate_grids(driver_count)
                 max_drivers = grid_count * DRIVERS_PER_GRID
                 was_on_waitlist = driver_count > max_drivers
-                remove_registration(race_id, driver_id)
+                remove_registration(race_id, driver_id, source="manual")
                 action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
-                add_log_entry(driver_id, action)
                 log.info(f"PULL_MODE: {psn} abgemeldet")
                 if was_on_waitlist:
                     all_regs = get_all_registrations(race_id)
                     if len(all_regs) >= max_drivers - 1:
                         moved = all_regs[max_drivers - 2] if len(all_regs) >= max_drivers - 1 else None
                         if moved:
-                            add_log_entry(moved["driver_id"], "nachgerueckt")
                             nachrücker.append(moved["psn_name"])
                 changed = True
 

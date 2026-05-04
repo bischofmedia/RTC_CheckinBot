@@ -173,10 +173,19 @@ def _ts_str(ts) -> str:
     return f"{weekday} {ts.strftime('%H:%M')}"
 
 
-def _format_log_entry(entry: dict, prev_status: str | None) -> str | None:
+def _get_driver_color(prev_status: str | None) -> str:
+    """Gibt die Emoji-Farbe basierend auf dem vorherigen Status zurück."""
+    if prev_status == "abgemeldet" or prev_status is None:
+        return "🔴"
+    if prev_status in ("angemeldet", "abo_angemeldet"):
+        return "🟢"
+    return "🟢"
+
+
+def _format_log_entry(entry: dict, prev_status: str | None, is_waitlist: bool = False) -> str | None:
     """
     Formatiert einen Log-Eintrag als Discord-Zeile.
-    prev_status: vorheriger Status des Fahrers ('angemeldet', 'warteliste', None)
+    is_waitlist: ob der Fahrer zum Zeitpunkt der Anmeldung auf der Warteliste landet.
     """
     ts = _ts_str(entry["timestamp"])
     name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
@@ -184,60 +193,73 @@ def _format_log_entry(entry: dict, prev_status: str | None) -> str | None:
 
     if action == "angemeldet":
         if prev_status == "abgemeldet":
+            if is_waitlist:
+                return f"{ts} 🔴 -> 🟡 {name}"
             return f"{ts} 🔴 -> 🟢 {name}"
+        if is_waitlist:
+            return f"{ts} 🟢 -> 🟡 {name}"
         return f"{ts} 🟢 {name}"
     elif action == "abo_angemeldet":
         return f"{ts} 🟢 {name} (Abo)"
     elif action == "abgemeldet":
+        if prev_status in ("angemeldet", "abo_angemeldet"):
+            return f"{ts} 🟢 -> 🔴 {name}"
         if prev_status == "warteliste":
             return f"{ts} 🟡 -> 🔴 {name}"
-        return f"{ts} 🟢 -> 🔴 {name}"
-    elif action == "abo_abgemeldet":
-        return None  # Nicht im Log
-    elif action == "warteliste":
-        if prev_status == "abgemeldet":
-            return f"{ts} 🔴 -> 🟡 {name}"
-        return f"{ts} 🟢 -> 🟡 {name}"
-    elif action == "nachgerueckt":
-        return f"{ts} 🟡 -> 🟢 {name}"
-    elif action == "warteliste_abgemeldet":
-        return f"{ts} 🟡 -> 🔴 {name}"
+        return f"{ts} 🔴 {name}"
     return None
 
 
 def build_log_section(race_id: int) -> str:
     """
-    Baut den Log-Bereich Apollo-style:
-    Chronologische Liste aller Einträge, Übergänge als Pfeil.
+    Baut den Log-Bereich aus checkin_registrations.
+    Berechnet Wartelisten-Status anhand der Kapazität zum Zeitpunkt der Anmeldung.
     """
     entries = get_log_entries(race_id)
     if not entries:
         return ""
 
-    # Vorherigen Status pro Fahrer tracken
-    driver_prev_status = {}  # name -> letzter Status
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    import os as _os
+    _dpg = int(_os.environ.get("DRIVERS_PER_GRID", 15))
+    _mg = int(_os.environ.get("MAX_GRIDS", 4))
+
+    driver_prev_status = {}  # driver_id -> letzter Status
     lines = []
+    # Zähle aktive Anmeldungen zum Zeitpunkt jedes Eintrags
+    active_count = 0
+    active_drivers = set()
 
     for entry in entries:
         name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
         action = entry["action"]
-        prev = driver_prev_status.get(name)
+        driver_id = entry["driver_id"]
+        prev = driver_prev_status.get(driver_id)
 
-        line = _format_log_entry(entry, prev)
+        # Wartelisten-Status berechnen
+        ts = entry.get("timestamp")
+        if isinstance(ts, str):
+            ts = _dt.fromisoformat(ts)
+        is_waitlist = False
+        if action in ("angemeldet", "abo_angemeldet"):
+            # Zeitpunkt der Anmeldung: war der Fahrer der Xte?
+            _now_ts = ts.replace(tzinfo=_ZI("Europe/Berlin")) if ts.tzinfo is None else ts
+            sunday_locked = (_now_ts.weekday() == 6 and _now_ts.hour >= 18) or _now_ts.weekday() == 0
+            _max = _mg * _dpg  # vereinfacht - vor Lock immer MAX_GRIDS
+            is_waitlist = len(active_drivers) >= _max
+
+        line = _format_log_entry(entry, prev, is_waitlist)
         if line:
             lines.append(line)
 
-        # Status updaten
-        if action in ("angemeldet",):
-            driver_prev_status[name] = "angemeldet"
-        elif action == "abo_angemeldet":
-            driver_prev_status[name] = "angemeldet"
-        elif action in ("abgemeldet", "abo_abgemeldet", "warteliste_abgemeldet"):
-            driver_prev_status[name] = "abgemeldet"
-        elif action == "warteliste":
-            driver_prev_status[name] = "warteliste"
-        elif action == "nachgerueckt":
-            driver_prev_status[name] = "angemeldet"
+        # Status und Zähler updaten
+        if action in ("angemeldet", "abo_angemeldet"):
+            driver_prev_status[driver_id] = action
+            active_drivers.add(driver_id)
+        elif action == "abgemeldet":
+            driver_prev_status[driver_id] = "abgemeldet"
+            active_drivers.discard(driver_id)
 
     if not lines:
         return ""

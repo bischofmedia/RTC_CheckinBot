@@ -266,14 +266,14 @@ def add_log_entry(driver_id: int, action: str):
 
 
 def get_log_entries(race_id: int) -> list:
-    """Gibt alle Log-Einträge für ein Rennen zurück."""
+    """Gibt alle Einträge chronologisch aus checkin_registrations zurück."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT cl.*, d.psn_name, d.discord_name
-                FROM checkin_log cl
-                JOIN drivers d ON d.driver_id = cl.driver_id
-                ORDER BY cl.timestamp ASC
+                SELECT cr.*, d.psn_name, d.discord_name
+                FROM checkin_registrations cr
+                JOIN drivers d ON d.driver_id = cr.driver_id
+                ORDER BY cr.timestamp ASC
             """)
             return cur.fetchall()
 

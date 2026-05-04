@@ -317,15 +317,20 @@ class DriverSelect(discord.ui.Select):
                             changed.append(f"✅ `{psn}` {_label}")
 
                         elif self.mode == "abmelden":
-                            # Prüfen ob Fahrer auf Warteliste war
+                            # Letzten Status des Fahrers aus Log ermitteln
+                            cur.execute("""
+                                SELECT action FROM checkin_log
+                                WHERE driver_id = %s
+                                ORDER BY timestamp DESC LIMIT 1
+                            """, (did,))
+                            _last = cur.fetchone()
+                            _last_action = _last["action"] if _last else None
+                            _was_waitlist = _last_action == "warteliste"
+
                             cur.execute("SELECT COUNT(*) AS cnt FROM checkin_registrations")
                             _dc = cur.fetchone()["cnt"]
                             _dpg = int(os.environ.get("DRIVERS_PER_GRID", 15))
                             _mg = int(os.environ.get("MAX_GRIDS", 4))
-                            _now2 = __import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo("Europe/Berlin"))
-                            _sunday_locked = (_now2.weekday() == 6 and _now2.hour >= 18) or _now2.weekday() == 0
-                            _max = (_mg * _dpg) if not _sunday_locked else (min(_mg, max(1, (_dc + _dpg - 1) // _dpg)) * _dpg)
-                            _was_waitlist = _dc > _max
 
                             cur.execute(
                                 "DELETE FROM checkin_registrations WHERE driver_id=%s",
