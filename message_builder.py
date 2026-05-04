@@ -213,23 +213,21 @@ def _format_log_entry(entry: dict, prev_status: str | None, is_waitlist: bool = 
 def build_log_section(race_id: int) -> str:
     """
     Baut den Log-Bereich aus checkin_registrations.
-    Berechnet Wartelisten-Status anhand der Kapazität zum Zeitpunkt der Anmeldung.
+    Jeder Eintrag erscheint chronologisch mit Übergangspfeil.
+    Wartelisten-Status wird anhand der aktiven Fahrerzahl berechnet.
     """
     entries = get_log_entries(race_id)
     if not entries:
         return ""
 
-    from datetime import datetime as _dt
-    from zoneinfo import ZoneInfo as _ZI
     import os as _os
     _dpg = int(_os.environ.get("DRIVERS_PER_GRID", 15))
     _mg = int(_os.environ.get("MAX_GRIDS", 4))
+    _max_capacity = _mg * _dpg
 
-    driver_prev_status = {}  # driver_id -> letzter Status
+    driver_prev_status = {}  # driver_id -> letzter Status ('angemeldet','abo_angemeldet','abgemeldet')
+    active_drivers = set()   # aktuell angemeldete driver_ids
     lines = []
-    # Zähle aktive Anmeldungen zum Zeitpunkt jedes Eintrags
-    active_count = 0
-    active_drivers = set()
 
     for entry in entries:
         name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
@@ -237,25 +235,18 @@ def build_log_section(race_id: int) -> str:
         driver_id = entry["driver_id"]
         prev = driver_prev_status.get(driver_id)
 
-        # Wartelisten-Status berechnen
-        ts = entry.get("timestamp")
-        if isinstance(ts, str):
-            ts = _dt.fromisoformat(ts)
+        # Warteliste: ist der Fahrer über die Kapazität hinaus?
         is_waitlist = False
         if action in ("angemeldet", "abo_angemeldet"):
-            # Zeitpunkt der Anmeldung: war der Fahrer der Xte?
-            _now_ts = ts.replace(tzinfo=_ZI("Europe/Berlin")) if ts.tzinfo is None else ts
-            sunday_locked = (_now_ts.weekday() == 6 and _now_ts.hour >= 18) or _now_ts.weekday() == 0
-            _max = _mg * _dpg  # vereinfacht - vor Lock immer MAX_GRIDS
-            is_waitlist = len(active_drivers) >= _max
+            is_waitlist = len(active_drivers) >= _max_capacity
 
         line = _format_log_entry(entry, prev, is_waitlist)
         if line:
             lines.append(line)
 
-        # Status und Zähler updaten
+        # Status aktualisieren
         if action in ("angemeldet", "abo_angemeldet"):
-            driver_prev_status[driver_id] = action
+            driver_prev_status[driver_id] = "warteliste" if is_waitlist else action
             active_drivers.add(driver_id)
         elif action == "abgemeldet":
             driver_prev_status[driver_id] = "abgemeldet"
