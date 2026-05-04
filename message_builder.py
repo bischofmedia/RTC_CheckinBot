@@ -104,14 +104,17 @@ def get_status(race_id: int, grid_count: int, driver_count: int) -> tuple[str, s
         if now >= deadline:
             return "🔴", "Anmeldung geschlossen"
 
-    max_drivers = grid_count * DRIVERS_PER_GRID
+    # Vor Sonntag 18:00: max = MAX_GRIDS × DRIVERS_PER_GRID (immer voll ausschöpfbar)
+    # Ab Sonntag 18:00: max = aktuell berechnete Grids × DRIVERS_PER_GRID (fixiert)
+    sunday_locked = now.weekday() == 6 and now.hour >= 18 or now.weekday() == 0
+    if sunday_locked:
+        max_drivers = grid_count * DRIVERS_PER_GRID
+    else:
+        max_drivers = MAX_GRIDS * DRIVERS_PER_GRID
     free_slots = max_drivers - driver_count
 
-    # Sonntag 18:00+ und Grids voll → 🟡
-    if now.weekday() == 6 and now.hour >= 18:
-        if free_slots <= 0:
-            return "🟡", f"Warteliste aktiv · {driver_count} Fahrer · {grid_count} Grids"
-        return "🟢", f"Anmeldung offen · {driver_count} Fahrer · {grid_count} Grids · {free_slots} Plätze frei"
+    if free_slots <= 0:
+        return "🟡", f"Warteliste aktiv · {driver_count} Fahrer · {grid_count} Grids"
 
     # Normal → 🟢
     return "🟢", f"Anmeldung offen · {driver_count} Fahrer · {grid_count} Grids"
