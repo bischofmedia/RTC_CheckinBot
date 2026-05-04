@@ -353,16 +353,10 @@ async def handle_register(interaction: discord.Interaction):
 
     driver_count = get_registration_count(race_id)
     grid_count = calculate_grids(driver_count)
-    max_drivers = grid_count * DRIVERS_PER_GRID
     # Vor Sonntag 18:00 immer MAX_GRIDS verfügbar, danach fixiert
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    _now = datetime.now(ZoneInfo("Europe/Berlin"))
+    _now = datetime.now(BERLIN)
     sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
-    if sunday_locked:
-        max_capacity = grid_count * DRIVERS_PER_GRID
-    else:
-        max_capacity = MAX_GRIDS * DRIVERS_PER_GRID
+    max_capacity = grid_count * DRIVERS_PER_GRID if sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
     on_waitlist = driver_count >= max_capacity
 
     add_registration(race_id, driver_id, source="manual")
@@ -820,15 +814,10 @@ async def pull_mode_sync():
                 grid_count = calculate_grids(driver_count)
                 max_drivers = grid_count * DRIVERS_PER_GRID
                 # Vor Sonntag 18:00 immer MAX_GRIDS verfügbar, danach fixiert
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    _now = datetime.now(ZoneInfo("Europe/Berlin"))
-    sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
-    if sunday_locked:
-        max_capacity = grid_count * DRIVERS_PER_GRID
-    else:
-        max_capacity = MAX_GRIDS * DRIVERS_PER_GRID
-    on_waitlist = driver_count >= max_capacity
+                _now = datetime.now(BERLIN)
+                sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
+                max_capacity = grid_count * DRIVERS_PER_GRID if sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
+                on_waitlist = driver_count >= max_capacity
                 add_registration(race_id, driver_id, source="manual")
                 add_log_entry(driver_id, "warteliste" if on_waitlist else "angemeldet")
                 log.info(f"PULL_MODE: {nick} -> {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
