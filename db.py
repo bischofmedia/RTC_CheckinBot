@@ -218,14 +218,14 @@ def get_registration_count(race_id: int) -> int:
             return cur.fetchone()["cnt"]
 
 
-def add_registration(race_id: int, driver_id: int, source: str = "manual"):
+def add_registration(race_id: int, driver_id: int, source: str = "manual", action: str = "angemeldet"):
     """Trägt einen Fahrer als angemeldet ein."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT IGNORE INTO checkin_registrations (driver_id, source, registered_at)
-                VALUES (%s, %s, %s)
-            """, (driver_id, source, datetime.now(BERLIN)))
+                INSERT INTO checkin_registrations (driver_id, source, action, registered_at)
+                VALUES (%s, %s, %s, %s)
+            """, (driver_id, source, action, datetime.now(BERLIN)))
     set_driver_active(driver_id)
 
 
