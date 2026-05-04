@@ -317,14 +317,43 @@ class DriverSelect(discord.ui.Select):
                             changed.append(f"✅ `{psn}` {_label}")
 
                         elif self.mode == "abmelden":
+                            # Prüfen ob Fahrer auf Warteliste war
+                            cur.execute("SELECT COUNT(*) AS cnt FROM checkin_registrations")
+                            _dc = cur.fetchone()["cnt"]
+                            _dpg = int(os.environ.get("DRIVERS_PER_GRID", 15))
+                            _mg = int(os.environ.get("MAX_GRIDS", 4))
+                            _now2 = __import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo("Europe/Berlin"))
+                            _sunday_locked = (_now2.weekday() == 6 and _now2.hour >= 18) or _now2.weekday() == 0
+                            _max = (_mg * _dpg) if not _sunday_locked else (min(_mg, max(1, (_dc + _dpg - 1) // _dpg)) * _dpg)
+                            _was_waitlist = _dc > _max
+
                             cur.execute(
                                 "DELETE FROM checkin_registrations WHERE driver_id=%s",
                                 (did,),
                             )
+                            _abmeld_action = "warteliste_abgemeldet" if _was_waitlist else "abgemeldet"
                             cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'abgemeldet', NOW())",
-                                (did,),
+                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, %s, NOW())",
+                                (did, _abmeld_action),
                             )
+
+                            # Nachrücker: erster Wartelisten-Fahrer rückt nach
+                            if not _was_waitlist and _dc > _max:
+                                cur.execute("""
+                                    SELECT cr.driver_id, d.psn_name
+                                    FROM checkin_registrations cr
+                                    JOIN drivers d ON d.driver_id = cr.driver_id
+                                    ORDER BY cr.registered_at ASC
+                                    LIMIT 1 OFFSET %s
+                                """, (_max - 1,))
+                                _nachrücker = cur.fetchone()
+                                if _nachrücker:
+                                    cur.execute(
+                                        "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'nachgerueckt', NOW())",
+                                        (_nachrücker["driver_id"],),
+                                    )
+                                    changed.append(f"⬆️ `{_nachrücker['psn_name']}` nachgerückt")
+
                             changed.append(f"❌ `{psn}` abgemeldet")
 
                         elif self.mode == "abo_an":
