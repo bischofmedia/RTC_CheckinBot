@@ -301,64 +301,16 @@ class DriverSelect(discord.ui.Select):
                     with db.cursor() as cur:
                         if self.mode == "anmelden":
                             cur.execute(
-                                "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, timestamp) VALUES (%s,'admin','angemeldet',NOW())",
                                 (did,),
                             )
-                            cur.execute("SELECT COUNT(*) AS cnt FROM checkin_registrations")
-                            _dc = cur.fetchone()["cnt"]
-                            _dpg = int(os.environ.get("DRIVERS_PER_GRID", 15))
-                            _mg = int(os.environ.get("MAX_GRIDS", 4))
-                            _log_action = "warteliste" if _dc > (_mg * _dpg) else "angemeldet"
-                            cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, %s, NOW())",
-                                (did, _log_action),
-                            )
-                            _label = "auf Warteliste" if _log_action == "warteliste" else "angemeldet"
-                            changed.append(f"✅ `{psn}` {_label}")
+                            changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
-                            # Letzten Status des Fahrers aus Log ermitteln
-                            cur.execute("""
-                                SELECT action FROM checkin_log
-                                WHERE driver_id = %s
-                                ORDER BY timestamp DESC LIMIT 1
-                            """, (did,))
-                            _last = cur.fetchone()
-                            _last_action = _last["action"] if _last else None
-                            _was_waitlist = _last_action == "warteliste"
-
-                            cur.execute("SELECT COUNT(*) AS cnt FROM checkin_registrations")
-                            _dc = cur.fetchone()["cnt"]
-                            _dpg = int(os.environ.get("DRIVERS_PER_GRID", 15))
-                            _mg = int(os.environ.get("MAX_GRIDS", 4))
-
                             cur.execute(
-                                "DELETE FROM checkin_registrations WHERE driver_id=%s",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, timestamp) VALUES (%s,'admin','abgemeldet',NOW())",
                                 (did,),
                             )
-                            _abmeld_action = "warteliste_abgemeldet" if _was_waitlist else "abgemeldet"
-                            cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, %s, NOW())",
-                                (did, _abmeld_action),
-                            )
-
-                            # Nachrücker: erster Wartelisten-Fahrer rückt nach
-                            if not _was_waitlist and _dc > _max:
-                                cur.execute("""
-                                    SELECT cr.driver_id, d.psn_name
-                                    FROM checkin_registrations cr
-                                    JOIN drivers d ON d.driver_id = cr.driver_id
-                                    ORDER BY cr.registered_at ASC
-                                    LIMIT 1 OFFSET %s
-                                """, (_max - 1,))
-                                _nachrücker = cur.fetchone()
-                                if _nachrücker:
-                                    cur.execute(
-                                        "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'nachgerueckt', NOW())",
-                                        (_nachrücker["driver_id"],),
-                                    )
-                                    changed.append(f"⬆️ `{_nachrücker['psn_name']}` nachgerückt")
-
                             changed.append(f"❌ `{psn}` abgemeldet")
 
                         elif self.mode == "abo_an":
