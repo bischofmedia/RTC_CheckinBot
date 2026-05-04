@@ -304,25 +304,17 @@ class DriverSelect(discord.ui.Select):
                                 "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
                                 (did,),
                             )
-                            # Wartelisten-Check
-                            from datetime import datetime
-                            from zoneinfo import ZoneInfo
-                            import os as _os
-                            _now = datetime.now(ZoneInfo("Europe/Berlin"))
-                            sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
-                            _dpg = int(_os.environ.get("DRIVERS_PER_GRID", 15))
-                            _mg = int(_os.environ.get("MAX_GRIDS", 4))
                             cur.execute("SELECT COUNT(*) AS cnt FROM checkin_registrations")
                             _dc = cur.fetchone()["cnt"]
-                            _gc = min(max(1, (_dc + _dpg - 1) // _dpg), _mg)
-                            _max = _gc * _dpg if sunday_locked else _mg * _dpg
-                            action = "warteliste" if _dc > _max else "angemeldet"
+                            _dpg = int(os.environ.get("DRIVERS_PER_GRID", 15))
+                            _mg = int(os.environ.get("MAX_GRIDS", 4))
+                            _log_action = "warteliste" if _dc > (_mg * _dpg) else "angemeldet"
                             cur.execute(
                                 "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, %s, NOW())",
-                                (did, action),
+                                (did, _log_action),
                             )
-                            label = "auf Warteliste" if action == "warteliste" else "angemeldet"
-                            changed.append(f"✅ `{psn}` {label}")
+                            _label = "auf Warteliste" if _log_action == "warteliste" else "angemeldet"
+                            changed.append(f"✅ `{psn}` {_label}")
 
                         elif self.mode == "abmelden":
                             cur.execute(
