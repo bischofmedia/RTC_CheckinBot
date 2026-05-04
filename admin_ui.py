@@ -301,14 +301,14 @@ class DriverSelect(discord.ui.Select):
                     with db.cursor() as cur:
                         if self.mode == "anmelden":
                             cur.execute(
-                                "INSERT INTO checkin_registrations (driver_id, source, action, timestamp) VALUES (%s,'admin','angemeldet',NOW())",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s,'admin','angemeldet',NOW())",
                                 (did,),
                             )
                             changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
                             cur.execute(
-                                "INSERT INTO checkin_registrations (driver_id, source, action, timestamp) VALUES (%s,'admin','abgemeldet',NOW())",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s,'admin','abgemeldet',NOW())",
                                 (did,),
                             )
                             changed.append(f"❌ `{psn}` abgemeldet")

@@ -435,10 +435,16 @@ async def handle_unregister(interaction: discord.Interaction):
 
     # Update im Hintergrund
     async def _background():
-        if was_on_waitlist and all_regs:
-            waitlist_drivers = all_regs[max_drivers:]
-            if waitlist_drivers:
-                moved_up = waitlist_drivers[0]
+        from db import get_all_registrations, add_log_entry
+        if not was_on_waitlist:
+            # Grid-Abmeldung: prüfen ob Wartebank-Fahrer nachrückt
+            new_count = get_registration_count(race_id)
+            new_grid_count = calculate_grids(new_count)
+            new_max = new_grid_count * DRIVERS_PER_GRID
+            all_regs = get_all_registrations(race_id)
+            if len(all_regs) >= new_max:
+                moved_up = all_regs[new_max - 1]
+                add_log_entry(moved_up["driver_id"], "angemeldet", source="manual")
                 await send_moved_up_msg([moved_up.get("psn_name", "")])
         if not TEST_MODE:
             sync_registrations_to_sheet(race_id)

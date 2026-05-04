@@ -260,7 +260,7 @@ def add_log_entry(driver_id: int, action: str):
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO checkin_log (driver_id, action, timestamp)
+                INSERT INTO checkin_registrations (driver_id, source, action, registered_at)
                 VALUES (%s, %s, %s)
             """, (driver_id, action, datetime.now(BERLIN)))
 
@@ -273,7 +273,7 @@ def get_log_entries(race_id: int) -> list:
                 SELECT cr.*, d.psn_name, d.discord_name
                 FROM checkin_registrations cr
                 JOIN drivers d ON d.driver_id = cr.driver_id
-                ORDER BY cr.timestamp ASC
+                ORDER BY cr.registered_at ASC
             """)
             return cur.fetchall()
 

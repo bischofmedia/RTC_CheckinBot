@@ -187,7 +187,7 @@ def _format_log_entry(entry: dict, prev_status: str | None, is_waitlist: bool = 
     Formatiert einen Log-Eintrag als Discord-Zeile.
     is_waitlist: ob der Fahrer zum Zeitpunkt der Anmeldung auf der Warteliste landet.
     """
-    ts = _ts_str(entry["timestamp"])
+    ts = _ts_str(entry["registered_at"])
     name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
     action = entry["action"]
 
