@@ -181,14 +181,18 @@ def set_driver_active(driver_id: int):
 # ─────────────────────────────────────────────
 
 def get_registration(race_id: int, driver_id: int) -> dict | None:
-    """Gibt die aktuelle Anmeldung eines Fahrers für ein Rennen zurück."""
+    """Gibt die aktuelle Anmeldung zurück, nur wenn Fahrer aktiv angemeldet ist."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT * FROM checkin_registrations
                 WHERE driver_id = %s
+                ORDER BY id DESC LIMIT 1
             """, (driver_id,))
-            return cur.fetchone()
+            row = cur.fetchone()
+            if row and row["action"] != "abgemeldet":
+                return row
+            return None
 
 
 def get_all_registrations(race_id: int) -> list:
@@ -225,14 +229,14 @@ def add_registration(race_id: int, driver_id: int, source: str = "manual"):
     set_driver_active(driver_id)
 
 
-def remove_registration(race_id: int, driver_id: int):
-    """Entfernt einen Fahrer aus der Anmeldeliste."""
+def remove_registration(race_id: int, driver_id: int, source: str = "manual"):
+    """Trägt eine Abmelde-Aktion ein."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                DELETE FROM checkin_registrations
-                WHERE driver_id = %s
-            """, (driver_id,))
+                INSERT INTO checkin_registrations (driver_id, source, action, registered_at)
+                VALUES (%s, %s, 'abgemeldet', %s)
+            """, (driver_id, source, datetime.now(BERLIN)))
 
 
 def clear_log():
