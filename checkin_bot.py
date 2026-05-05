@@ -400,11 +400,6 @@ async def handle_register(interaction: discord.Interaction):
         if not TEST_MODE:
             sync_registrations_to_sheet(race_id)
         await update_checkin_message()
-        new_count = get_registration_count(race_id)
-        new_grids = calculate_grids(new_count)
-        if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
-            await send_grid_full_msg(new_grids)
-            state["last_grid_count"] = new_grids
         if on_waitlist:
             await send_waitlist_msg([driver.get("psn_name", "")])
     asyncio.create_task(_background())
