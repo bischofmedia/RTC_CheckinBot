@@ -701,7 +701,10 @@ async def tuesday_reset():
         if text:
             channel = bot.get_channel(_news_channel())
             if channel:
-                await channel.send(text)
+                try:
+                    await channel.send(text)
+                except Exception as e:
+                    log.error(f"Fehler beim Senden der News-Nachricht: {e}")
     else:
         state["current_race_id"] = None
         state["current_race"] = None
