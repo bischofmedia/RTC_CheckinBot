@@ -438,9 +438,27 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
         except Exception:
             lines.append("⚠️ Anmeldestatus konnte nicht geladen werden.")
 
-        # ── Grid-Einteilung ───────────────────────────────────────────────
+        # ── Wartelisten-Status prüfen ────────────────────────────────────
+        on_waitlist = False
         try:
             if reg:
+                from db import get_all_registrations
+                from datetime import datetime
+                _now = datetime.now(BERLIN)
+                _sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
+                _grid_count = get_current_grid_count(race_id, get_registration_count(race_id))
+                _capacity = _grid_count * DRIVERS_PER_GRID if _sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
+                _all_regs = get_all_registrations(race_id)
+                _pos = next((i for i, r in enumerate(_all_regs) if r["driver_id"] == driver_id), None)
+                on_waitlist = _pos is not None and _pos >= _capacity
+                if on_waitlist:
+                    lines.append(f"🟡 **Du stehst auf der Warteliste** (Position {_pos - _capacity + 1}).")
+        except Exception:
+            pass
+
+        # ── Grid-Einteilung ───────────────────────────────────────────────
+        try:
+            if reg and not on_waitlist:
                 grid = get_driver_grid_assignment(driver_id, race_id)
                 if grid:
                     lines.append("")
@@ -452,7 +470,7 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                         if grid.get("streamer_url"):
                             stream_text += f" · [Stream]({grid['streamer_url']})"
                         lines.append(stream_text)
-                    lines.append("📊 Die komplette Grideinteilung: https://cutt.ly/RTC-infos")
+                    lines.append("📊 Die komplette Grideinteilung: <https://cutt.ly/RTC-infos>")
         except Exception:
             pass
 
