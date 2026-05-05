@@ -983,6 +983,9 @@ async def on_ready():
     state["sunday_msg_sent"] = db_state.get("sunday_msg_sent", "False") == "True"
     state["grid_locked"]     = db_state.get("grid_locked", "False") == "True"
     state["last_grid_count"] = int(db_state.get("last_grid_count", 0))
+    # grid_msg_notified lokal aus last_grid_count ableiten:
+    # Alle Grid-Stufen bis zum aktuellen Stand gelten als bereits gesendet.
+    state["grid_msg_notified"] = set(range(1, state["last_grid_count"] + 1))
 
     saved_race_id = db_state.get("current_race_id")
     if saved_race_id:
