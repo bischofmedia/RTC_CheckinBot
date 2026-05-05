@@ -1,5 +1,5 @@
 """
-RTC CheckinBot – db.py
+RTC CheckinBot – db.py  v2
 Datenbankverbindung und alle DB-Funktionen
 """
 
@@ -209,13 +209,18 @@ def get_all_registrations(race_id: int) -> list:
 
 
 def get_registration_count(race_id: int) -> int:
-    """Gibt die Anzahl der aktuellen Anmeldungen zurück."""
+    """Gibt die Anzahl der aktuell angemeldeten Fahrer zurück (Anmeldungen minus Abmeldungen)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT COUNT(*) AS cnt FROM checkin_registrations
+                SELECT driver_id, action FROM checkin_registrations
+                ORDER BY id ASC
             """)
-            return cur.fetchone()["cnt"]
+            rows = cur.fetchall()
+            status = {}
+            for row in rows:
+                status[row["driver_id"]] = row["action"]
+            return sum(1 for a in status.values() if a != "abgemeldet")
 
 
 def add_registration(race_id: int, driver_id: int, source: str = "manual", action: str = "angemeldet"):
