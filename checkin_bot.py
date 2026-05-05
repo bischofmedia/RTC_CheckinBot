@@ -220,6 +220,7 @@ async def update_checkin_message(channel=None):
         new_grids = calculate_grids(driver_count)
         prev_grids = state.get("last_grid_count", 0)
         notified_grids = state.get("grid_msg_notified", set())
+        log.info(f"[DEBUG Grid] driver_count={driver_count} new_grids={new_grids} prev_grids={prev_grids} notified={notified_grids} grid_locked={state.get('grid_locked')} SET_MIN={SET_MIN_GRIDS_MSG}")
 
         if (new_grids > prev_grids
                 and new_grids not in notified_grids
