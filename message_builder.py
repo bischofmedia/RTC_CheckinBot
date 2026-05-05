@@ -468,7 +468,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                     else:
                         host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
                         lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
-                    lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
+                    if not is_host:
+                        lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
                     if grid.get("streamer_name"):
                         stream_text = f"🎥 Dein Streamer ist **{grid['streamer_name']}**"
                         if grid.get("streamer_url"):
@@ -501,15 +502,7 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 races = standings["races_started"]
                 pos_text = f"P{pos}" if pos else "?"
                 info_parts.append(f"🏆 Saison: {pos_text} · **{net}** Punkte · {races} Rennen")
-                if standings["dropped_results"]:
-                    parts = []
-                    for r in standings["dropped_results"]:
-                        if r["race_id"] is None:
-                            n = r.get("count", 1)
-                            parts.append(f"{n}× DNS (0 Pkt)")
-                        else:
-                            parts.append(f"R{r['race_number']} ({r['points']} Pkt)")
-                    info_parts.append(f"✂️ Gestrichen: {', '.join(parts)}")
+
             for part in info_parts:
                 lines.append(part)
         except Exception:
