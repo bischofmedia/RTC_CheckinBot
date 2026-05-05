@@ -196,13 +196,19 @@ def get_registration(race_id: int, driver_id: int) -> dict | None:
 
 
 def get_all_registrations(race_id: int) -> list:
-    """Gibt alle aktuellen Anmeldungen für ein Rennen zurück."""
+    """Gibt alle aktuell angemeldeten Fahrer zurück (letzter Eintrag != abgemeldet)."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT cr.*, d.psn_name, d.discord_id, d.discord_name
+                SELECT cr.driver_id, cr.source, cr.action, cr.registered_at,
+                       d.psn_name, d.discord_id, d.discord_name
                 FROM checkin_registrations cr
                 JOIN drivers d ON d.driver_id = cr.driver_id
+                WHERE cr.id = (
+                    SELECT MAX(id) FROM checkin_registrations cr2
+                    WHERE cr2.driver_id = cr.driver_id
+                )
+                AND cr.action != 'abgemeldet'
                 ORDER BY cr.registered_at ASC
             """)
             return cur.fetchall()
