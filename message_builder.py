@@ -513,11 +513,21 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
             if track_id:
                 stats = get_driver_track_stats(driver_id, track_id)
                 lines.append("")
-                if stats["race_count"] == 0:
-                    lines.append(f"🏎️ Diese Strecke fährst du zum ersten Mal – viel Erfolg!")
+                if not reg:
+                    # Nicht angemeldet
+                    if stats["race_count"] == 0:
+                        lines.append("🏁 Du bist noch nie auf dieser Strecke gefahren – meld dich an und setz ein Ausrufezeichen!")
+                    else:
+                        lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
+                        lines.append("*Handy quer, siehste mehr* 😉")
                 else:
-                    lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
-                    lines.append("*Handy quer, siehste mehr* 😉")
+                    if stats["race_count"] == 0:
+                        lines.append("🏎️ Diese Strecke fährst du zum ersten Mal – viel Erfolg!")
+                    else:
+                        lines.append(f"🏎️ **Deine bisherigen Ergebnisse** auf {race.get('track_name', '?')}:")
+                        lines.append("*Handy quer, siehste mehr* 😉")
+                if not reg and stats["race_count"] == 0:
+                    lines.append("👉 Meld dich jetzt an!")
                 if stats["race_count"] > 0:
                     code_lines = ["Saison   Datum    Gr P  G      %  Auto"]
                     code_lines.append("─" * 42)
@@ -537,6 +547,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                         except Exception:
                             continue
                     lines.append("```\n" + "\n".join(code_lines) + "\n```")
+                if not reg and stats["race_count"] > 0:
+                    lines.append("👉 Du kennst die Strecke – meld dich an!")
         except Exception:
             pass
 
