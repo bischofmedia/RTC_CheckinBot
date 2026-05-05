@@ -359,7 +359,10 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import sys, asyncio as _asyncio
-                checkin_bot = sys.modules.get("checkin_bot") or sys.modules.get("__main__")
+                # Immer __main__ nehmen – nur dort ist bot korrekt initialisiert
+                checkin_bot = sys.modules.get("__main__")
+                if checkin_bot and not hasattr(checkin_bot, "state"):
+                    checkin_bot = sys.modules.get("checkin_bot")
                 log.info(f"[Admin] checkin_bot Modul: {checkin_bot}, changed: {changed}")
                 if checkin_bot and hasattr(checkin_bot, "state") and hasattr(checkin_bot, "update_checkin_message"):
                     _mode = self.mode
