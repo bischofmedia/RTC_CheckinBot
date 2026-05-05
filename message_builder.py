@@ -495,11 +495,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 pos = standings["position"]
                 total = standings["total_drivers"]
                 races = standings["races_started"]
-                pos_text = f"P{pos}/{total}" if pos else "?"
-                pts_text = f"**{net}**"
-                if drops > 0:
-                    pts_text += f" *(brutto {gross}, -{dropped_pts} Streicher)*"
-                info_parts.append(f"🏆 Saison: {pos_text} · {pts_text} Punkte · {races} Rennen")
+                pos_text = f"P{pos}" if pos else "?"
+                info_parts.append(f"🏆 Saison: {pos_text} · **{net}** Punkte · {races} Rennen")
                 if standings["dropped_results"]:
                     parts = []
                     for r in standings["dropped_results"]:
