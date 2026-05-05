@@ -69,13 +69,16 @@ def get_db():
 
 def fetch_next_race(db) -> dict | None:
     with db.cursor() as cur:
-        cur.execute("""
-            SELECT rc.race_date, rc.track_name, rc.track_id
-            FROM checkin_state cs
-            JOIN race_calendar rc ON rc.id = CAST(cs.value AS UNSIGNED)
-            WHERE cs.key_name = 'current_race_id'
+        cur.execute(
+            """
+            SELECT race_date, track_name, track_id
+            FROM race_calendar
+            WHERE race_date >= %s
+            ORDER BY race_date ASC
             LIMIT 1
-        """)
+            """,
+            (date.today(),),
+        )
         return cur.fetchone()
 
 
@@ -298,12 +301,20 @@ class DriverSelect(discord.ui.Select):
                     with db.cursor() as cur:
                         if self.mode == "anmelden":
                             cur.execute(
+                                "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
+                                (did,),
+                            )
+                            cur.execute(
                                 "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s, 'admin', 'angemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
+                            cur.execute(
+                                "DELETE FROM checkin_registrations WHERE driver_id=%s",
+                                (did,),
+                            )
                             cur.execute(
                                 "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s, 'admin', 'abgemeldet', NOW())",
                                 (did,),
@@ -344,17 +355,43 @@ class DriverSelect(discord.ui.Select):
         finally:
             db.close()
 
-        # Checkin-Nachricht aktualisieren wenn An-/Abmeldungen geändert wurden
+        # Checkin-Nachricht + Nachrichten + Sheet-Sync im Hintergrund
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import sys, asyncio as _asyncio
                 checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
                 if checkin_bot:
+                    _mode = self.mode
                     async def _bg():
                         try:
-                            channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
+                            from db import get_registration_count, get_all_registrations
+                            new_count = get_registration_count(None)
+                            new_grids = checkin_bot.calculate_grids(new_count)
+                            _dpg = checkin_bot.DRIVERS_PER_GRID
+                            _mg = checkin_bot.MAX_GRIDS
+
+                            if _mode == "anmelden":
+                                # Wartelisten-Nachricht
+                                _max = _mg * _dpg
+                                if new_count > _max:
+                                    await checkin_bot.send_waitlist_msg([r.split("`")[1] for r in changed if "angemeldet" in r])
+                                # Grid-Full Nachricht
+                                if new_grids > checkin_bot.state.get("last_grid_count", 0) and not checkin_bot.state.get("grid_locked"):
+                                    await checkin_bot.send_grid_full_msg(new_grids)
+                                    checkin_bot.state["last_grid_count"] = new_grids
+                            elif _mode == "abmelden":
+                                # Nachrücker-Nachricht
+                                all_regs = get_all_registrations(None)
+                                _max = new_grids * _dpg
+                                if len(all_regs) >= _max:
+                                    moved = all_regs[_max - 1]
+                                    await checkin_bot.send_moved_up_msg([moved.get("psn_name", "")])
+                        except Exception:
+                            pass
+                        try:
+                            channel = checkin_bot.bot.get_channel(checkin_bot.CHAN_CHECKIN)
                             if not channel:
-                                channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
+                                channel = await checkin_bot.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
                             await checkin_bot.update_checkin_message(channel=channel)
                         except Exception:
                             pass
@@ -365,7 +402,7 @@ class DriverSelect(discord.ui.Select):
                             pass
                     _asyncio.create_task(_bg())
             except Exception as e:
-                errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
+                errors.append(f"⚠️ Hintergrund-Update fehlgeschlagen: {e}")
 
         lines = changed + errors
         await interaction.response.edit_message(
@@ -530,7 +567,20 @@ def _next_monday() -> date:
 def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord.ui.View]:
     next_monday = _next_monday()
 
-    if next_race and next_race["track_id"] != 0:
+    if next_race and next_race["track_id"] != 0 and next_race["race_date"] == next_monday:
+        embed = discord.Embed(
+            title=ADMIN_EMBED_TITLE,
+            description=(
+                f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n\n"
+                "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
+                "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
+                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
+            ),
+            color=discord.Color.blue(),
+        )
+        return embed, AdminViewFull()
+
+    elif next_race and next_race["track_id"] != 0:
         race_str = f"{next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}"
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
