@@ -71,13 +71,13 @@ def fetch_next_race(db) -> dict | None:
     with db.cursor() as cur:
         cur.execute(
             """
-            SELECT rc.race_date, rc.track_name, rc.track_id
-            FROM checkin_state cs
-            JOIN race_calendar rc ON rc.id = CAST(cs.value AS UNSIGNED)
-            WHERE cs.key_name = 'current_race_id'
+            SELECT race_date, track_name, track_id
+            FROM race_calendar
+            WHERE race_date >= %s
+            ORDER BY race_date ASC
             LIMIT 1
             """,
-            (),
+            (date.today(),),
         )
         return cur.fetchone()
 
@@ -301,14 +301,22 @@ class DriverSelect(discord.ui.Select):
                     with db.cursor() as cur:
                         if self.mode == "anmelden":
                             cur.execute(
-                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s,'admin','angemeldet',NOW())",
+                                "INSERT IGNORE INTO checkin_registrations (driver_id, source) VALUES (%s,'manual')",
+                                (did,),
+                            )
+                            cur.execute(
+                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'angemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"✅ `{psn}` angemeldet")
 
                         elif self.mode == "abmelden":
                             cur.execute(
-                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s,'admin','abgemeldet',NOW())",
+                                "DELETE FROM checkin_registrations WHERE driver_id=%s",
+                                (did,),
+                            )
+                            cur.execute(
+                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'abgemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"❌ `{psn}` abgemeldet")
@@ -357,12 +365,6 @@ class DriverSelect(discord.ui.Select):
                     if not channel:
                         channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
                     await checkin_bot.update_checkin_message(channel=channel)
-                    # Sheet-Sync
-                    try:
-                        from sheets import sync_registrations_to_sheet
-                        sync_registrations_to_sheet(None)
-                    except Exception as e:
-                        pass
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
@@ -529,18 +531,33 @@ def _next_monday() -> date:
 def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord.ui.View]:
     next_monday = _next_monday()
 
-    if next_race and next_race["track_id"] != 0:
+    if next_race and next_race["track_id"] != 0 and next_race["race_date"] == next_monday:
         embed = discord.Embed(
             title=ADMIN_EMBED_TITLE,
             description=(
-                f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n"
-                f"*(kein Rennen am kommenden Montag)*\n\n"
+                f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n\n"
+                "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
                 "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
             ),
-            color=discord.Color.dark_grey(),
+            color=discord.Color.blue(),
         )
-        return embed, AdminViewAboOnly()
+        return embed, AdminViewFull()
+
+    elif next_race and next_race["track_id"] != 0:
+        race_str = f"{next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}"
+        embed = discord.Embed(
+            title=ADMIN_EMBED_TITLE,
+            description=(
+                f"**Aktuelles Rennen:** {race_str}\n\n"
+                "**✅ Anmelden / ❌ Abmelden** – Fahrer an- oder abmelden\n"
+                "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
+                "**🔒 Sperren / 🔓 Entsperren** – Abo-Berechtigung sperren/freigeben\n\n"
+                "*An- und Abmeldungen per UI sind immer möglich, auch nach Anmeldeschluss.*"
+            ),
+            color=discord.Color.blue(),
+        )
+        return embed, AdminViewFull()
 
     elif next_race and next_race["track_id"] == 0:
         embed = discord.Embed(
