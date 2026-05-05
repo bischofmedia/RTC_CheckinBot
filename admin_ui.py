@@ -347,18 +347,23 @@ class DriverSelect(discord.ui.Select):
         # Checkin-Nachricht aktualisieren wenn An-/Abmeldungen geändert wurden
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
-                import sys
+                import sys, asyncio as _asyncio
                 checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
                 if checkin_bot:
-                    channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
-                    if not channel:
-                        channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
-                    await checkin_bot.update_checkin_message(channel=channel)
-                    try:
-                        from sheets import sync_registrations_to_sheet
-                        sync_registrations_to_sheet(None)
-                    except Exception as _e:
-                        pass
+                    async def _bg():
+                        try:
+                            channel = self.bot.get_channel(checkin_bot.CHAN_CHECKIN)
+                            if not channel:
+                                channel = await self.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
+                            await checkin_bot.update_checkin_message(channel=channel)
+                        except Exception:
+                            pass
+                        try:
+                            from sheets import sync_registrations_to_sheet
+                            sync_registrations_to_sheet(None)
+                        except Exception:
+                            pass
+                    _asyncio.create_task(_bg())
             except Exception as e:
                 errors.append(f"⚠️ Checkin-Nachricht konnte nicht aktualisiert werden: {e}")
 
