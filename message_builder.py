@@ -1,3 +1,4 @@
+# v2
 """
 RTC CheckinBot – message_builder.py
 Baut die Channel-Nachricht und den Status-Button-Text zusammen.
@@ -104,9 +105,20 @@ def get_status(race_id: int, grid_count: int, driver_count: int) -> tuple[str, s
         if now >= deadline:
             return "🔴", "Anmeldung geschlossen"
 
-    # Vor Sonntag 18:00: max = MAX_GRIDS × DRIVERS_PER_GRID (immer voll ausschöpfbar)
-    # Ab Sonntag 18:00: max = aktuell berechnete Grids × DRIVERS_PER_GRID (fixiert)
-    sunday_locked = now.weekday() == 6 and now.hour >= 18 or now.weekday() == 0
+    # Montag nach Anmeldeschluss → 🔴
+    if now.weekday() == 0:
+        deadline_str = os.environ.get("REGISTRATION_DEADLINE", "20:45")
+        h, m = map(int, deadline_str.split(":"))
+        if now.hour > h or (now.hour == h and now.minute >= m):
+            return "🔴", f"Anmeldung geschlossen · {driver_count} Fahrer · {grid_count} Grids"
+
+    # Dienstag vor 10:00 (vor Reset) → 🔴
+    if now.weekday() == 1 and now.hour < 10:
+        return "🔴", f"Anmeldung geschlossen · {driver_count} Fahrer · {grid_count} Grids"
+
+    # Vor Sonntag 18:00: max = MAX_GRIDS × DRIVERS_PER_GRID
+    # Ab Sonntag 18:00: max = aktuelle Grids × DRIVERS_PER_GRID (fixiert)
+    sunday_locked = (now.weekday() == 6 and now.hour >= 18)
     if sunday_locked:
         max_drivers = grid_count * DRIVERS_PER_GRID
     else:

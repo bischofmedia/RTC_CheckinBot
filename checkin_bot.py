@@ -1,3 +1,4 @@
+# v2
 """
 RTC CheckinBot – checkin_bot.py
 Hauptbot: Discord.py Gateway, Buttons, Wochenlogik, Scheduler
@@ -167,11 +168,15 @@ def calculate_grids(driver_count: int) -> int:
 
 def is_registration_closed() -> bool:
     now = datetime.now(BERLIN)
-    if now.weekday() != 0:
-        return False
-    h, m = map(int, REGISTRATION_DEADLINE.split(":"))
-    deadline = now.replace(hour=h, minute=m, second=0, microsecond=0)
-    return now >= deadline
+    # Dienstag vor 10:00 → geschlossen
+    if now.weekday() == 1 and now.hour < 10:
+        return True
+    # Montag nach Deadline → geschlossen
+    if now.weekday() == 0:
+        h, m = map(int, REGISTRATION_DEADLINE.split(":"))
+        deadline = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        return now >= deadline
+    return False
 
 def _save_msg_id(msg_id: int):
     try:
@@ -339,7 +344,7 @@ async def handle_register(interaction: discord.Interaction):
         return "❌ Kein aktives Rennen gefunden.", None
     
     if is_registration_closed():
-        return "🔴 Die Anmeldung ist geschlossen.", None
+        return "🔴 Die Anmeldung ist geschlossen. An- und Abmeldungen sind nur noch über die Orga möglich.", None
 
     driver = await resolve_driver_from_interaction(interaction)
     if not driver:
@@ -400,7 +405,7 @@ async def handle_unregister(interaction: discord.Interaction):
         return "❌ Kein aktives Rennen gefunden.", None
 
     if is_registration_closed():
-        return "🔴 Die Anmeldung ist geschlossen.", None
+        return "🔴 Die Anmeldung ist geschlossen. An- und Abmeldungen sind nur noch über die Orga möglich.", None
 
     driver = await resolve_driver_from_interaction(interaction)
     if not driver:

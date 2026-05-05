@@ -1,5 +1,5 @@
 """
-RTC CheckinBot – db.py  v2
+RTC CheckinBot – db.py  v3
 Datenbankverbindung und alle DB-Funktionen
 """
 
@@ -264,14 +264,14 @@ def clear_registrations(race_id: int):
 # Log
 # ─────────────────────────────────────────────
 
-def add_log_entry(driver_id: int, action: str):
-    """Schreibt einen Eintrag ins Anmelde-Log."""
+def add_log_entry(driver_id: int, action: str, source: str = "manual"):
+    """Schreibt einen Eintrag in checkin_registrations."""
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO checkin_registrations (driver_id, source, action, registered_at)
-                VALUES (%s, %s, %s)
-            """, (driver_id, action, datetime.now(BERLIN)))
+                VALUES (%s, %s, %s, %s)
+            """, (driver_id, source, action, datetime.now(BERLIN)))
 
 
 def get_log_entries(race_id: int) -> list:
