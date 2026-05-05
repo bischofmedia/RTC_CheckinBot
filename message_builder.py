@@ -462,13 +462,17 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                 grid = get_driver_grid_assignment(driver_id, race_id)
                 if grid:
                     lines.append("")
-                    host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
-                    lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
+                    is_host = bool(grid.get("host_name") and grid["host_name"] == driver.get("psn_name"))
+                    if is_host:
+                        lines.append(f"📋 Du hostest **Grid {grid['grid_number']}**.")
+                    else:
+                        host_text = f", Dein Host ist **{grid['host_name']}**" if grid.get("host_name") else ""
+                        lines.append(f"📋 Du bist aktuell in **Grid {grid['grid_number']}** eingeteilt{host_text}.")
                     lines.append("*(Beachte: Die Einteilung kann sich bis zum Rennen noch ändern.)*")
                     if grid.get("streamer_name"):
                         stream_text = f"🎥 Dein Streamer ist **{grid['streamer_name']}**"
                         if grid.get("streamer_url"):
-                            stream_text += f" · [Stream]({grid['streamer_url']})"
+                            stream_text += f" · <{grid['streamer_url']}>"
                         lines.append(stream_text)
                     lines.append("📊 Die komplette Grideinteilung: <https://cutt.ly/RTC-infos>")
         except Exception:
