@@ -305,7 +305,7 @@ class DriverSelect(discord.ui.Select):
                                 (did,),
                             )
                             cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'angemeldet', NOW())",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s, 'admin', 'angemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"✅ `{psn}` angemeldet")
@@ -316,7 +316,7 @@ class DriverSelect(discord.ui.Select):
                                 (did,),
                             )
                             cur.execute(
-                                "INSERT INTO checkin_log (driver_id, action, timestamp) VALUES (%s, 'abgemeldet', NOW())",
+                                "INSERT INTO checkin_registrations (driver_id, source, action, registered_at) VALUES (%s, 'admin', 'abgemeldet', NOW())",
                                 (did,),
                             )
                             changed.append(f"❌ `{psn}` abgemeldet")
