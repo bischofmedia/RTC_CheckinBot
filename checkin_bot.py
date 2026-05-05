@@ -435,11 +435,19 @@ async def handle_unregister(interaction: discord.Interaction):
 
     driver_count = get_registration_count(race_id)
     grid_count = calculate_grids(driver_count)
-    max_drivers = grid_count * DRIVERS_PER_GRID
-    was_on_waitlist = driver_count > max_drivers
 
-    # all_regs VOR der Abmeldung holen – für Nachrücker-Logik immer nötig
+    # all_regs VOR der Abmeldung holen – für Nachrücker-Logik und Position immer nötig
     all_regs = get_all_registrations(race_id)
+
+    # Kapazität: vor Grid-Lock MAX_GRIDS, danach fixiert
+    _now = datetime.now(BERLIN)
+    _sunday_locked = (_now.weekday() == 6 and _now.hour >= 18) or _now.weekday() == 0
+    capacity = grid_count * DRIVERS_PER_GRID if _sunday_locked else MAX_GRIDS * DRIVERS_PER_GRID
+
+    # Position des Fahrers in der Anmeldeliste bestimmt ob er im Grid oder auf Warteliste stand
+    driver_position = next((i for i, r in enumerate(all_regs) if r["driver_id"] == driver_id), None)
+    was_on_waitlist = driver_position is not None and driver_position >= capacity
+
     remove_registration(race_id, driver_id, source="manual")
 
     action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
@@ -459,12 +467,8 @@ async def handle_unregister(interaction: discord.Interaction):
     async def _background():
         from db import add_log_entry
         if not was_on_waitlist:
-            # Nachrücker: war jemand auf der Warteliste vor der Abmeldung?
-            if state.get("grid_locked"):
-                capacity_before = grid_count * DRIVERS_PER_GRID
-            else:
-                capacity_before = MAX_GRIDS * DRIVERS_PER_GRID
-            waitlist_before = [r for r in all_regs if all_regs.index(r) >= capacity_before]
+            # Grid-Fahrer abgemeldet: erster Wartelisten-Fahrer rückt nach
+            waitlist_before = [r for r in all_regs if all_regs.index(r) >= capacity]
             if waitlist_before:
                 moved_up = waitlist_before[0]
                 add_log_entry(moved_up["driver_id"], "angemeldet", source="manual")
