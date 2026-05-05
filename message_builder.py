@@ -501,8 +501,14 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
                     pts_text += f" *(brutto {gross}, -{dropped_pts} Streicher)*"
                 info_parts.append(f"🏆 Saison: {pos_text} · {pts_text} Punkte · {races} Rennen")
                 if standings["dropped_results"]:
-                    dropped_str = ", ".join(f"R{r['race_number']} ({r['points']} Pkt)" for r in standings["dropped_results"])
-                    info_parts.append(f"✂️ Gestrichen: {dropped_str}")
+                    parts = []
+                    for r in standings["dropped_results"]:
+                        if r["race_id"] is None:
+                            n = r.get("count", 1)
+                            parts.append(f"{n}× DNS (0 Pkt)")
+                        else:
+                            parts.append(f"R{r['race_number']} ({r['points']} Pkt)")
+                    info_parts.append(f"✂️ Gestrichen: {', '.join(parts)}")
             for part in info_parts:
                 lines.append(part)
         except Exception:

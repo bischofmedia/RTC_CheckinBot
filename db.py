@@ -468,14 +468,23 @@ def get_driver_season_standings_with_drops(driver_id: int, season_id: int) -> di
             """, (driver_id, season_id))
             results = cur.fetchall()
 
-            if not results:
-                return None
+            # Anzahl stattgefundener Rennen in dieser Saison (race_date <= heute)
+            from datetime import date as _date
+            cur.execute("""
+                SELECT COUNT(*) AS cnt, MAX(race_number) AS max_race_number
+                FROM races
+                WHERE season_id = %s AND race_date <= %s
+            """, (season_id, _date.today()))
+            season_races = cur.fetchone()
+            races_held = season_races["cnt"] or 0
+            max_race_number = season_races["max_race_number"] or 0
 
             races_started = len(results)
+            # DNS/Nicht-Teilnahmen = stattgefundene Rennen minus Teilnahmen → implizite Nullen
+            dns_count = max(0, races_held - races_started)
             points_gross = sum(r["points_total"] or 0 for r in results)
 
-            # Höchste gefahrene Rennnummer bestimmt aktive Streicher
-            max_race_number = max(r["race_number"] for r in results)
+            # Aktive Streicher basierend auf stattgefundenen Rennen (nicht nur gefahrenen)
             active_drops = 0
             if season["drop_after_race_1"] and max_race_number >= season["drop_after_race_1"]:
                 active_drops = 1
@@ -483,14 +492,16 @@ def get_driver_season_standings_with_drops(driver_id: int, season_id: int) -> di
                 active_drops = 2
             if season["drop_after_race_3"] and max_race_number >= season["drop_after_race_3"]:
                 active_drops = 3
-            # Maximal durch drop_results begrenzt
             active_drops = min(active_drops, season["drop_results"] or 0)
 
-            # Schlechteste N Ergebnisse ermitteln
-            sorted_results = sorted(results, key=lambda r: r["points_total"] or 0)
-            dropped = sorted_results[:active_drops]
-            points_dropped = sum(r["points_total"] or 0 for r in dropped)
-            points_net = points_gross - points_dropped
+            # Alle Ergebnisse inkl. impliziter Nullen für DNS
+            all_points = sorted([r["points_total"] or 0 for r in results] + [0] * dns_count)
+            dropped_values = all_points[:active_drops]
+            points_dropped = sum(dropped_values)
+            points_net = points_gross - max(0, sum(v for v in dropped_values if v > 0))
+            # Netto = Brutto minus gestrichene Punkte die tatsächlich in results stehen
+            # (DNS-Nullen haben keine Punkte zum Abziehen)
+            points_net = points_gross - sum(v for v in dropped_values if v > 0)
 
             # Gesamtposition: alle Fahrer dieser Saison mit Netto-Punkten berechnen
             cur.execute("""
@@ -528,15 +539,29 @@ def get_driver_season_standings_with_drops(driver_id: int, season_id: int) -> di
             driver_nets.sort(key=lambda x: x[1], reverse=True)
             position = next((i + 1 for i, (did, _) in enumerate(driver_nets) if did == driver_id), None)
 
+            # Gestrichene Ergebnisse: zuerst DNS-Nullen, dann schlechteste echte Ergebnisse
+            n_dns_dropped = sum(1 for v in dropped_values if v == 0)
+            n_real_dropped = active_drops - n_dns_dropped
+            real_sorted = sorted(results, key=lambda r: r["points_total"] or 0)
+            dropped_real = real_sorted[:n_real_dropped]
+
+            dropped_results = []
+            if n_dns_dropped:
+                dropped_results.append({"race_id": None, "points": 0, "race_number": "DNS", "count": n_dns_dropped})
+            for r in dropped_real:
+                dropped_results.append({"race_id": r["race_id"], "points": r["points_total"], "race_number": r["race_number"]})
+
             return {
                 "races_started": races_started,
+                "races_held": races_held,
+                "dns_count": dns_count,
                 "active_drops": active_drops,
                 "points_total_gross": points_gross,
                 "points_dropped": points_dropped,
                 "points_total_net": points_net,
                 "position": position,
                 "total_drivers": len(driver_nets),
-                "dropped_results": [{"race_id": r["race_id"], "points": r["points_total"], "race_number": r["race_number"]} for r in dropped],
+                "dropped_results": dropped_results,
             }
 
 
