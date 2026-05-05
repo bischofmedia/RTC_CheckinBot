@@ -363,7 +363,13 @@ class DriverSelect(discord.ui.Select):
                 log.info(f"[Admin] checkin_bot Modul: {checkin_bot}, changed: {changed}")
                 if checkin_bot and hasattr(checkin_bot, "state") and hasattr(checkin_bot, "update_checkin_message"):
                     _mode = self.mode
+                    # Anzahl abgemeldeter/angemeldeter Fahrer aus `changed` ableiten
+                    _n_changed = len([r for r in changed if ("angemeldet" in r or "abgemeldet" in r)])
+
                     async def _bg():
+                        import asyncio as _asyncio
+                        # Kurz warten damit die DB-Writes der admin-Connection committed sind
+                        await _asyncio.sleep(0.5)
                         try:
                             from db import get_registration_count, get_all_registrations
                             _race_id = checkin_bot.state.get("current_race_id")
@@ -371,32 +377,23 @@ class DriverSelect(discord.ui.Select):
                             _mg = checkin_bot.MAX_GRIDS
 
                             if _mode == "anmelden":
-                                # Nur Fahrer die tatsächlich auf der Warteliste landen melden.
-                                # Kapazität vor Grid-Lock = MAX_GRIDS * DRIVERS_PER_GRID.
                                 _max = _mg * _dpg
                                 new_count = get_registration_count(_race_id)
                                 if new_count > _max:
-                                    # Wartelisten-Fahrer = Anzahl über der Kapazität
                                     waitlist_count = new_count - _max
-                                    # Die letzten `waitlist_count` der gerade angemeldeten Fahrer
                                     just_registered = [r.split("`")[1] for r in changed if "angemeldet" in r]
                                     waitlist_names = just_registered[-waitlist_count:]
                                     if waitlist_names:
                                         await checkin_bot.send_waitlist_msg(waitlist_names)
 
                             elif _mode == "abmelden":
-                                # Nachrücker: prüfen ob vor der Abmeldung jemand auf Warteliste stand.
-                                # all_regs ist jetzt der Stand NACH der Abmeldung.
                                 all_regs = get_all_registrations(_race_id)
                                 new_count = len(all_regs)
                                 new_grids = checkin_bot.calculate_grids(new_count)
-                                # Kapazität nach Abmeldung
                                 if checkin_bot.state.get("grid_locked"):
                                     capacity = new_grids * _dpg
                                 else:
                                     capacity = _mg * _dpg
-                                # Nachrücker existiert wenn jemand genau auf dem letzten Grid-Platz sitzt
-                                # und vorher auf der Warteliste war (d.h. new_count == capacity)
                                 if new_count == capacity and new_count > 0:
                                     moved = all_regs[capacity - 1]
                                     await checkin_bot.send_moved_up_msg([moved.get("psn_name", "")])
