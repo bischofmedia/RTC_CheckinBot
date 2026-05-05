@@ -375,10 +375,7 @@ class DriverSelect(discord.ui.Select):
                                 _max = _mg * _dpg
                                 if new_count > _max:
                                     await checkin_bot.send_waitlist_msg([r.split("`")[1] for r in changed if "angemeldet" in r])
-                                # Grid-Full Nachricht
-                                if new_grids > checkin_bot.state.get("last_grid_count", 0) and not checkin_bot.state.get("grid_locked"):
-                                    await checkin_bot.send_grid_full_msg(new_grids)
-                                    checkin_bot.state["last_grid_count"] = new_grids
+
                             elif _mode == "abmelden":
                                 # Nachrücker-Nachricht
                                 all_regs = get_all_registrations(None)

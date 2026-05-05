@@ -213,6 +213,25 @@ async def update_checkin_message(channel=None):
         log.error(f"Fehler beim Aufbau der Channel-Nachricht: {e}")
         return
 
+    # ── Grid-Nachricht prüfen ─────────────────────────────────────────────
+    try:
+        from db import get_registration_count
+        driver_count = get_registration_count(race_id)
+        new_grids = calculate_grids(driver_count)
+        prev_grids = state.get("last_grid_count", 0)
+        notified_grids = state.get("grid_msg_notified", set())
+
+        if (new_grids > prev_grids
+                and new_grids not in notified_grids
+                and not state.get("grid_locked")
+                and new_grids >= SET_MIN_GRIDS_MSG):
+            await send_grid_full_msg(new_grids)
+            notified_grids.add(new_grids)
+            state["grid_msg_notified"] = notified_grids
+        state["last_grid_count"] = new_grids
+    except Exception as e:
+        log.error(f"Grid-Nachricht Fehler: {e}")
+
     now_str = datetime.now(BERLIN).strftime("%d.%m.%Y %H:%M")
     from db import load_state_value
     last_sync = load_state_value("last_sheet_sync", "–")
@@ -675,6 +694,7 @@ async def tuesday_reset():
     state["sunday_msg_sent"] = False
     state["grid_locked"] = False
     state["last_grid_count"] = 0
+    state["grid_msg_notified"] = set()
     save_state({"sunday_lock": False, "sunday_msg_sent": False,
                 "grid_locked": False, "last_grid_count": 0})
 
@@ -827,11 +847,7 @@ async def pull_mode_sync():
                 log.info(f"PULL_MODE: {nick} -> {psn} angemeldet{'  (Warteliste)' if on_waitlist else ''}")
                 if on_waitlist:
                     waitlist_drivers.append(psn)
-                new_count = get_registration_count(race_id)
-                new_grids = calculate_grids(new_count)
-                if new_grids > state.get("last_grid_count", 0) and not state.get("grid_locked"):
-                    await send_grid_full_msg(new_grids)
-                    state["last_grid_count"] = new_grids
+
                 changed = True
             elif not driver_id:
                 log.warning(f"PULL_MODE: Nick nicht gefunden: {nick}")
