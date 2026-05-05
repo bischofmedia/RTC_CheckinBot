@@ -458,13 +458,18 @@ async def handle_unregister(interaction: discord.Interaction):
     async def _background():
         from db import get_all_registrations, add_log_entry
         if not was_on_waitlist:
-            # Grid-Abmeldung: prüfen ob Wartebank-Fahrer nachrückt
-            new_count = get_registration_count(race_id)
-            new_grid_count = calculate_grids(new_count)
-            new_max = new_grid_count * DRIVERS_PER_GRID
-            all_regs = get_all_registrations(race_id)
-            if len(all_regs) >= new_max:
-                moved_up = all_regs[new_max - 1]
+            # Grid-Abmeldung: prüfen ob vor der Abmeldung jemand auf der Warteliste stand.
+            # all_regs wurde VOR der Abmeldung geholt (oben im Handler).
+            # Warteliste = alles jenseits von MAX_GRIDS * DRIVERS_PER_GRID (vor Grid-Lock)
+            # bzw. grid_count * DRIVERS_PER_GRID (nach Grid-Lock).
+            if state.get("grid_locked"):
+                capacity_before = grid_count * DRIVERS_PER_GRID
+            else:
+                capacity_before = MAX_GRIDS * DRIVERS_PER_GRID
+            waitlist_before = [r for r in all_regs if all_regs.index(r) >= capacity_before]
+            if waitlist_before:
+                # Erster Nachrücker = erstes Element der Warteliste
+                moved_up = waitlist_before[0]
                 add_log_entry(moved_up["driver_id"], "angemeldet", source="manual")
                 await send_moved_up_msg([moved_up.get("psn_name", "")])
         if not TEST_MODE:
