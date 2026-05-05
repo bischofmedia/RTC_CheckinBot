@@ -478,7 +478,8 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
         try:
             rating = get_driver_current_rating(driver_id)
             overall = get_driver_overall_stats(driver_id)
-            standings = get_driver_season_standings(driver_id, season_id) if season_id else None
+            from db import get_driver_season_standings_with_drops
+            standings = get_driver_season_standings_with_drops(driver_id, season_id) if season_id else None
 
             lines.append("")
             info_parts = []
@@ -487,7 +488,21 @@ def build_status_message(driver: dict, race_id: int, race: dict) -> str:
             if overall.get("total_races"):
                 info_parts.append(f"🏁 Rennen gesamt: **{overall['total_races']}**")
             if standings:
-                info_parts.append(f"🏆 Saison-Punkte: **{standings.get('total_points', 0)}** · Rennen: **{standings.get('races_started', 0)}**")
+                net = standings["points_total_net"]
+                gross = standings["points_total_gross"]
+                drops = standings["active_drops"]
+                dropped_pts = standings["points_dropped"]
+                pos = standings["position"]
+                total = standings["total_drivers"]
+                races = standings["races_started"]
+                pos_text = f"P{pos}/{total}" if pos else "?"
+                pts_text = f"**{net}**"
+                if drops > 0:
+                    pts_text += f" *(brutto {gross}, -{dropped_pts} Streicher)*"
+                info_parts.append(f"🏆 Saison: {pos_text} · {pts_text} Punkte · {races} Rennen")
+                if standings["dropped_results"]:
+                    dropped_str = ", ".join(f"R{r['race_number']} ({r['points']} Pkt)" for r in standings["dropped_results"])
+                    info_parts.append(f"✂️ Gestrichen: {dropped_str}")
             for part in info_parts:
                 lines.append(part)
         except Exception:

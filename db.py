@@ -435,6 +435,111 @@ def get_driver_season_standings(driver_id: int, season_id: int) -> dict | None:
             return cur.fetchone()
 
 
+def get_driver_season_standings_with_drops(driver_id: int, season_id: int) -> dict | None:
+    """
+    Gibt den Saisonstand eines Fahrers zurück – mit Streichergebnissen.
+    Berechnet:
+      - races_started: Anzahl gefahrener Rennen
+      - active_drops: aktuell aktive Streicher (basierend auf race_number der gefahrenen Rennen)
+      - points_total_gross: Punkte ohne Streichung
+      - points_dropped: gestrichene Punkte (Summe der schlechtesten N Ergebnisse)
+      - points_total_net: Netto-Punkte nach Streichung
+      - position: aktuelle Position in der Gesamtwertung (netto)
+      - dropped_results: Liste der gestrichenen race_ids und Punkte
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Saison-Daten laden
+            cur.execute("""
+                SELECT drop_results, drop_after_race_1, drop_after_race_2, drop_after_race_3
+                FROM seasons WHERE season_id = %s
+            """, (season_id,))
+            season = cur.fetchone()
+            if not season:
+                return None
+
+            # Alle Ergebnisse des Fahrers in dieser Saison (inkl. race_number)
+            cur.execute("""
+                SELECT rr.race_id, rr.points_total, r.race_number
+                FROM race_results rr
+                JOIN races r ON r.race_id = rr.race_id
+                WHERE rr.driver_id = %s AND r.season_id = %s
+                ORDER BY r.race_number ASC
+            """, (driver_id, season_id))
+            results = cur.fetchall()
+
+            if not results:
+                return None
+
+            races_started = len(results)
+            points_gross = sum(r["points_total"] or 0 for r in results)
+
+            # Höchste gefahrene Rennnummer bestimmt aktive Streicher
+            max_race_number = max(r["race_number"] for r in results)
+            active_drops = 0
+            if season["drop_after_race_1"] and max_race_number >= season["drop_after_race_1"]:
+                active_drops = 1
+            if season["drop_after_race_2"] and max_race_number >= season["drop_after_race_2"]:
+                active_drops = 2
+            if season["drop_after_race_3"] and max_race_number >= season["drop_after_race_3"]:
+                active_drops = 3
+            # Maximal durch drop_results begrenzt
+            active_drops = min(active_drops, season["drop_results"] or 0)
+
+            # Schlechteste N Ergebnisse ermitteln
+            sorted_results = sorted(results, key=lambda r: r["points_total"] or 0)
+            dropped = sorted_results[:active_drops]
+            points_dropped = sum(r["points_total"] or 0 for r in dropped)
+            points_net = points_gross - points_dropped
+
+            # Gesamtposition: alle Fahrer dieser Saison mit Netto-Punkten berechnen
+            cur.execute("""
+                SELECT rr.driver_id, SUM(rr.points_total) AS gross
+                FROM race_results rr
+                JOIN races r ON r.race_id = rr.race_id
+                WHERE r.season_id = %s
+                GROUP BY rr.driver_id
+            """, (season_id,))
+            all_drivers_raw = cur.fetchall()
+
+            # Für jeden Fahrer Netto berechnen (vereinfacht: gross - drops analog zu oben)
+            driver_nets = []
+            for d in all_drivers_raw:
+                cur.execute("""
+                    SELECT rr.points_total, r.race_number
+                    FROM race_results rr
+                    JOIN races r ON r.race_id = rr.race_id
+                    WHERE rr.driver_id = %s AND r.season_id = %s
+                    ORDER BY rr.points_total ASC
+                """, (d["driver_id"], season_id))
+                d_results = cur.fetchall()
+                d_max_race = max((x["race_number"] for x in d_results), default=0)
+                d_drops = 0
+                if season["drop_after_race_1"] and d_max_race >= season["drop_after_race_1"]:
+                    d_drops = 1
+                if season["drop_after_race_2"] and d_max_race >= season["drop_after_race_2"]:
+                    d_drops = 2
+                if season["drop_after_race_3"] and d_max_race >= season["drop_after_race_3"]:
+                    d_drops = 3
+                d_drops = min(d_drops, season["drop_results"] or 0)
+                d_net = sum(x["points_total"] or 0 for x in d_results[d_drops:])
+                driver_nets.append((d["driver_id"], d_net))
+
+            driver_nets.sort(key=lambda x: x[1], reverse=True)
+            position = next((i + 1 for i, (did, _) in enumerate(driver_nets) if did == driver_id), None)
+
+            return {
+                "races_started": races_started,
+                "active_drops": active_drops,
+                "points_total_gross": points_gross,
+                "points_dropped": points_dropped,
+                "points_total_net": points_net,
+                "position": position,
+                "total_drivers": len(driver_nets),
+                "dropped_results": [{"race_id": r["race_id"], "points": r["points_total"], "race_number": r["race_number"]} for r in dropped],
+            }
+
+
 # ─────────────────────────────────────────────
 # Statistik (für Status-Button)
 # ─────────────────────────────────────────────
