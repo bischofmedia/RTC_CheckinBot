@@ -402,18 +402,17 @@ class DriverSelect(discord.ui.Select):
                         except Exception:
                             pass
                         try:
-                            channel = checkin_bot.bot.get_channel(checkin_bot.CHAN_CHECKIN)
-                            if not channel:
-                                channel = await checkin_bot.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
-                            await checkin_bot.update_checkin_message(channel=channel)
-                        except Exception:
-                            pass
+                            await checkin_bot.update_checkin_message()
+                        except Exception as e:
+                            import logging as _log
+                            _log.getLogger("admin_ui").error(f"update_checkin_message fehlgeschlagen: {e}")
                         try:
                             from sheets import sync_registrations_to_sheet
                             _race_id = checkin_bot.state.get("current_race_id")
                             sync_registrations_to_sheet(_race_id)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            import logging as _log
+                            _log.getLogger("admin_ui").error(f"Sheet-Sync fehlgeschlagen: {e}")
                     _asyncio.create_task(_bg())
             except Exception as e:
                 errors.append(f"⚠️ Hintergrund-Update fehlgeschlagen: {e}")
