@@ -438,7 +438,8 @@ async def handle_unregister(interaction: discord.Interaction):
     max_drivers = grid_count * DRIVERS_PER_GRID
     was_on_waitlist = driver_count > max_drivers
 
-    all_regs = get_all_registrations(race_id) if was_on_waitlist else []
+    # all_regs VOR der Abmeldung holen – für Nachrücker-Logik immer nötig
+    all_regs = get_all_registrations(race_id)
     remove_registration(race_id, driver_id, source="manual")
 
     action = "warteliste_abgemeldet" if was_on_waitlist else "abgemeldet"
@@ -456,19 +457,15 @@ async def handle_unregister(interaction: discord.Interaction):
 
     # Update im Hintergrund
     async def _background():
-        from db import get_all_registrations, add_log_entry
+        from db import add_log_entry
         if not was_on_waitlist:
-            # Grid-Abmeldung: prüfen ob vor der Abmeldung jemand auf der Warteliste stand.
-            # all_regs wurde VOR der Abmeldung geholt (oben im Handler).
-            # Warteliste = alles jenseits von MAX_GRIDS * DRIVERS_PER_GRID (vor Grid-Lock)
-            # bzw. grid_count * DRIVERS_PER_GRID (nach Grid-Lock).
+            # Nachrücker: war jemand auf der Warteliste vor der Abmeldung?
             if state.get("grid_locked"):
                 capacity_before = grid_count * DRIVERS_PER_GRID
             else:
                 capacity_before = MAX_GRIDS * DRIVERS_PER_GRID
             waitlist_before = [r for r in all_regs if all_regs.index(r) >= capacity_before]
             if waitlist_before:
-                # Erster Nachrücker = erstes Element der Warteliste
                 moved_up = waitlist_before[0]
                 add_log_entry(moved_up["driver_id"], "angemeldet", source="manual")
                 await send_moved_up_msg([moved_up.get("psn_name", "")])
