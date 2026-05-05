@@ -212,9 +212,9 @@ def _format_log_entry(entry: dict, prev_status: str | None, is_waitlist: bool = 
 
 def build_log_section(race_id: int) -> str:
     """
-    Baut den Log-Bereich aus checkin_registrations.
-    Jeder Eintrag erscheint chronologisch mit Übergangspfeil.
-    Wartelisten-Status wird anhand der aktiven Fahrerzahl berechnet.
+    Baut den Log-Bereich sequenziell.
+    Trackt Warteliste genau: wer ist wann auf die Warteliste gekommen,
+    wer rückt nach wenn ein Grid-Fahrer abmeldet.
     """
     entries = get_log_entries(race_id)
     if not entries:
@@ -225,32 +225,65 @@ def build_log_section(race_id: int) -> str:
     _mg = int(_os.environ.get("MAX_GRIDS", 4))
     _max_capacity = _mg * _dpg
 
-    driver_prev_status = {}  # driver_id -> letzter Status ('angemeldet','abo_angemeldet','abgemeldet')
-    active_drivers = set()   # aktuell angemeldete driver_ids
+    driver_status = {}       # driver_id -> aktueller Status: 'grid', 'warteliste', 'abgemeldet'
+    grid_drivers = []        # Reihenfolge der Grid-Fahrer
+    waitlist_drivers = []    # Reihenfolge der Wartelisten-Fahrer (FIFO)
     lines = []
 
     for entry in entries:
         name = entry.get("psn_name") or entry.get("discord_name") or "Unbekannt"
         action = entry["action"]
         driver_id = entry["driver_id"]
-        prev = driver_prev_status.get(driver_id)
+        ts = _ts_str(entry["registered_at"])
+        prev = driver_status.get(driver_id)
 
-        # Warteliste: ist der Fahrer über die Kapazität hinaus?
-        is_waitlist = False
         if action in ("angemeldet", "abo_angemeldet"):
-            is_waitlist = len(active_drivers) >= _max_capacity
+            # Bereits angemeldet? Ignorieren
+            if prev in ("grid", "warteliste"):
+                continue
+            grid_count = len(grid_drivers)
+            if grid_count < _max_capacity:
+                # Platz im Grid
+                driver_status[driver_id] = "grid"
+                grid_drivers.append(driver_id)
+                suffix = " (Abo)" if action == "abo_angemeldet" else ""
+                if prev == "abgemeldet":
+                    lines.append(f"{ts} 🔴 -> 🟢 {name}{suffix}")
+                else:
+                    lines.append(f"{ts} 🟢 {name}{suffix}")
+            else:
+                # Warteliste
+                driver_status[driver_id] = "warteliste"
+                waitlist_drivers.append(driver_id)
+                if prev == "abgemeldet":
+                    lines.append(f"{ts} 🔴 -> 🟡 {name}")
+                else:
+                    lines.append(f"{ts} 🟢 -> 🟡 {name}")
 
-        line = _format_log_entry(entry, prev, is_waitlist)
-        if line:
-            lines.append(line)
-
-        # Status aktualisieren
-        if action in ("angemeldet", "abo_angemeldet"):
-            driver_prev_status[driver_id] = "warteliste" if is_waitlist else action
-            active_drivers.add(driver_id)
         elif action == "abgemeldet":
-            driver_prev_status[driver_id] = "abgemeldet"
-            active_drivers.discard(driver_id)
+            if prev == "grid":
+                driver_status[driver_id] = "abgemeldet"
+                if driver_id in grid_drivers:
+                    grid_drivers.remove(driver_id)
+                lines.append(f"{ts} 🟢 -> 🔴 {name}")
+                # Nachrücker von Warteliste
+                if waitlist_drivers:
+                    next_id = waitlist_drivers.pop(0)
+                    next_name = next(
+                        (e.get("psn_name") or e.get("discord_name") for e in entries if e["driver_id"] == next_id),
+                        "Unbekannt"
+                    )
+                    driver_status[next_id] = "grid"
+                    grid_drivers.append(next_id)
+                    lines.append(f"{ts} 🟡 -> 🟢 {next_name}")
+            elif prev == "warteliste":
+                driver_status[driver_id] = "abgemeldet"
+                if driver_id in waitlist_drivers:
+                    waitlist_drivers.remove(driver_id)
+                lines.append(f"{ts} 🟡 -> 🔴 {name}")
+            else:
+                # War nicht angemeldet, ignorieren
+                continue
 
     if not lines:
         return ""
