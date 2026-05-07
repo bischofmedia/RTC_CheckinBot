@@ -619,16 +619,15 @@ class AdminViewFull(discord.ui.View):
         checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
         max_grids = getattr(checkin_bot, "MAX_GRIDS", 6) if checkin_bot else 6
         view = GridSetView(max_grids)
+        text = (
+            "**Grids festlegen**\n"
+            "W\u00e4hle eine fixe Gridanzahl oder *Automatisch*.\n"
+            "\u2022 **Zahl** \u2192 fixiert die Gridanzahl, kein Nachrechnen mehr (\U0001f512)\n"
+            "\u2022 **Automatisch vor So 18h** \u2192 deaktiviert die Fixierung, Grids werden laufend neu berechnet\n"
+            "\u2022 **Automatisch nach So 18h** \u2192 berechnet die Gridanzahl einmalig neu und fixiert sie (\U0001f512)"
+        )
         await interaction.response.send_message(
-            "**Grids festlegen**
-"
-            "Wähle eine fixe Gridanzahl oder *Automatisch*.
-"
-            "• **Zahl** → fixiert die Gridanzahl, kein Nachrechnen mehr (🔒)
-"
-            "• **Automatisch vor So 18h** → deaktiviert die Fixierung, Grids werden laufend neu berechnet
-"
-            "• **Automatisch nach So 18h** → berechnet die Gridanzahl einmalig neu und fixiert sie (🔒)",
+            text,
             view=view,
             ephemeral=True,
         )
