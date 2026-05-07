@@ -236,7 +236,17 @@ def build_log_section(race_id: int) -> str:
     import os as _os
     _dpg = int(_os.environ.get("DRIVERS_PER_GRID", 15))
     _mg = int(_os.environ.get("MAX_GRIDS", 4))
-    _max_capacity = _mg * _dpg
+
+    # Kapazität dynamisch: Grid-Override und grid_locked berücksichtigen
+    try:
+        from checkin_bot import state as _cb_state, calculate_grids as _calc_grids
+        _locked = _cb_state.get("grid_locked", False)
+        if _locked:
+            _max_capacity = _cb_state.get("last_grid_count", _mg) * _dpg
+        else:
+            _max_capacity = _mg * _dpg
+    except Exception:
+        _max_capacity = _mg * _dpg
 
     driver_status = {}       # driver_id -> aktueller Status: 'grid', 'warteliste', 'abgemeldet'
     grid_drivers = []        # Reihenfolge der Grid-Fahrer
