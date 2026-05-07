@@ -573,7 +573,11 @@ class GridSetSelect(discord.ui.Select):
         _dpg = checkin_bot.DRIVERS_PER_GRID
         _mg = checkin_bot.MAX_GRIDS
         _all_regs_before = get_all_registrations(race_id)
-        _cap_before = checkin_bot.state.get("last_grid_count", _mg) * _dpg
+        # Kapazität vor Änderung: bei grid_locked die fixierte Anzahl, sonst MAX_GRIDS
+        if checkin_bot.state.get("grid_locked"):
+            _cap_before = checkin_bot.state.get("last_grid_count", _mg) * _dpg
+        else:
+            _cap_before = _mg * _dpg
         _status_before = _get_driver_statuses(_all_regs_before, _cap_before)
 
         if value == "auto":
