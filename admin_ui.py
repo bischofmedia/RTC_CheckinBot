@@ -618,8 +618,13 @@ class AdminViewFull(discord.ui.View):
         import sys
         checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
         max_grids = getattr(checkin_bot, "MAX_GRIDS", 6) if checkin_bot else 6
+        _state = getattr(checkin_bot, "state", {}) if checkin_bot else {}
+        _locked = _state.get("grid_locked", False)
+        _count = _state.get("last_grid_count", 0)
+        _status = f"\U0001f512 Aktuell fixiert: **{_count} Grids**" if _locked else "\U0001f513 Aktuell: automatische Berechnung"
         view = GridSetView(max_grids)
         text = (
+            f"{_status}\n\n"
             "**Grids festlegen**\n"
             "W\u00e4hle eine fixe Gridanzahl oder *Automatisch*.\n"
             "\u2022 **Zahl** \u2192 fixiert die Gridanzahl, kein Nachrechnen mehr (\U0001f512)\n"
@@ -674,7 +679,8 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
                 f"**Nächstes Rennen:** {next_race['track_name']} – {next_race['race_date'].strftime('%d.%m.%Y')}\n\n"
                 "**✅ Anmelden / ❌ Abmelden** – Fahrer für dieses Rennen\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
-                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung"
+                "**🔒 Sperren / 🔓 Entsperren** – Selbst-Abo-Berechtigung\n"
+                "**🔢 Grids** – Gridanzahl festlegen"
             ),
             color=discord.Color.blue(),
         )
@@ -688,7 +694,8 @@ def build_embed_and_view(next_race: dict | None) -> tuple[discord.Embed, discord
                 f"**Aktuelles Rennen:** {race_str}\n\n"
                 "**✅ Anmelden / ❌ Abmelden** – Fahrer an- oder abmelden\n"
                 "**⭐ Abo an / ⬜ Abo aus** – Daueranmeldung verwalten\n"
-                "**🔒 Sperren / 🔓 Entsperren** – Abo-Berechtigung sperren/freigeben\n\n"
+                "**🔒 Sperren / 🔓 Entsperren** – Abo-Berechtigung sperren/freigeben\n"
+                "**🔢 Grids** – Gridanzahl festlegen\n\n"
                 "*An- und Abmeldungen per UI sind immer möglich, auch nach Anmeldeschluss.*"
             ),
             color=discord.Color.blue(),
