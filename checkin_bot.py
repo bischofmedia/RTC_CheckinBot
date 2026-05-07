@@ -220,8 +220,6 @@ async def update_checkin_message(channel=None, skip_grid_notify=False):
         new_grids = calculate_grids(driver_count)
         prev_grids = state.get("last_grid_count", 0)
         notified_grids = state.get("grid_msg_notified", set())
-        log.info(f"[DEBUG Grid] driver_count={driver_count} new_grids={new_grids} prev_grids={prev_grids} notified={notified_grids} grid_locked={state.get('grid_locked')} SET_MIN={SET_MIN_GRIDS_MSG}")
-
         if (not skip_grid_notify
                 and new_grids > prev_grids
                 and new_grids not in notified_grids
@@ -570,24 +568,21 @@ async def handle_status(interaction: discord.Interaction):
 
 async def send_grid_full_msg(new_grids: int):
     if not ENABLE_GRID_FULL_MSG or new_grids < SET_MIN_GRIDS_MSG:
-        log.info(f"[DEBUG Grid] send_grid_full_msg geblockt: ENABLE={ENABLE_GRID_FULL_MSG} new_grids={new_grids} SET_MIN={SET_MIN_GRIDS_MSG}")
         return
     raw = MSG_GRID_FULL_TEXT_EN if ENABLE_MULTILANGUAGE else MSG_GRID_FULL_TEXT
     text = _pick_msg(raw, full_grids=new_grids)
-    log.info(f"[DEBUG Grid] send_grid_full_msg: new_grids={new_grids} text={repr(text)} channel_id={_news_channel()}")
     if text:
         channel = bot.get_channel(_news_channel())
         if channel:
             await channel.send(text)
         else:
-            log.error(f"[DEBUG Grid] Channel {_news_channel()} nicht im Cache – versuche fetch_channel")
             try:
                 channel = await bot.fetch_channel(_news_channel())
                 await channel.send(text)
             except Exception as e:
-                log.error(f"[DEBUG Grid] fetch_channel fehlgeschlagen: {e}")
+                log.error(f"fetch_channel fehlgeschlagen: {e}")
     else:
-        log.error(f"[DEBUG Grid] text ist leer – MSG_GRID_FULL_TEXT={repr(MSG_GRID_FULL_TEXT)}")
+        log.error(f"send_grid_full_msg: text leer – MSG_GRID_FULL_TEXT={repr(MSG_GRID_FULL_TEXT)}")
 
 
 async def send_waitlist_msg(driver_names: list):

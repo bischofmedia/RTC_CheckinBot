@@ -530,8 +530,6 @@ async def _send_grid_change_notifications(checkin_bot, before: dict, after: dict
     to_grid = [psn[did] for did, status in after.items()
                if status == "grid" and before.get(did) == "warteliste"]
 
-    log.info(f"[Grid-Notif] before={len(before)} after={len(after)} to_waitlist={to_waitlist} to_grid={to_grid}")
-
     if to_waitlist:
         await checkin_bot.send_waitlist_msg(to_waitlist)
     if to_grid:
