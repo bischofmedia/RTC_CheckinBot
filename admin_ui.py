@@ -509,6 +509,33 @@ async def _handle_mode(interaction: discord.Interaction, mode: str):
 # Grid-Festlegen Dropdown + View
 # ---------------------------------------------------------------------------
 
+def _get_driver_statuses(all_regs: list, capacity: int) -> dict:
+    """Gibt {driver_id: 'grid'|'warteliste'} für alle angemeldeten Fahrer zurück."""
+    result = {}
+    for i, r in enumerate(all_regs):
+        result[r["driver_id"]] = "grid" if i < capacity else "warteliste"
+    return result
+
+
+async def _send_grid_change_notifications(checkin_bot, before: dict, after: dict, all_regs: list):
+    """
+    Vergleicht Status vor/nach Grid-Änderung und sendet Nachrichten.
+    before/after: {driver_id: 'grid'|'warteliste'}
+    """
+    # PSN-Namen lookup
+    psn = {r["driver_id"]: r.get("psn_name") or r.get("discord_name", "?") for r in all_regs}
+
+    to_waitlist = [psn[did] for did, status in after.items()
+                   if status == "warteliste" and before.get(did) == "grid"]
+    to_grid = [psn[did] for did, status in after.items()
+               if status == "grid" and before.get(did) == "warteliste"]
+
+    if to_waitlist:
+        await checkin_bot.send_waitlist_msg(to_waitlist)
+    if to_grid:
+        await checkin_bot.send_moved_up_msg(to_grid)
+
+
 class GridSetSelect(discord.ui.Select):
     def __init__(self, max_grids: int):
         options = [discord.SelectOption(label="Automatisch", value="auto", description="Grid-Anzahl automatisch berechnen")]
@@ -539,8 +566,15 @@ class GridSetSelect(discord.ui.Select):
         now = discord.utils.utcnow().astimezone(BERLIN)
         is_sunday_locked = (now.weekday() == 6 and now.hour >= 18) or now.weekday() == 0
 
-        from db import set_grid_override, get_registration_count
+        from db import set_grid_override, get_registration_count, get_all_registrations
         from db import save_state_value
+
+        # Status VOR der Änderung merken
+        _dpg = checkin_bot.DRIVERS_PER_GRID
+        _mg = checkin_bot.MAX_GRIDS
+        _all_regs_before = get_all_registrations(race_id)
+        _cap_before = checkin_bot.state.get("last_grid_count", _mg) * _dpg
+        _status_before = _get_driver_statuses(_all_regs_before, _cap_before)
 
         if value == "auto":
             # Automatisch: grid_locked deaktivieren (vor So 18h) oder einmalig berechnen + lock (nach So 18h)
@@ -554,6 +588,8 @@ class GridSetSelect(discord.ui.Select):
                 checkin_bot.state["last_grid_count"] = new_grid_count
                 from db import save_state as _save_state
                 _save_state({"grid_locked": True, "last_grid_count": new_grid_count})
+                _status_after = _get_driver_statuses(_all_regs_before, new_grid_count * _dpg)
+                await _send_grid_change_notifications(checkin_bot, _status_before, _status_after, _all_regs_before)
                 msg = f"🔒 Grid-Anzahl automatisch auf **{new_grid_count}** berechnet und fixiert."
             else:
                 # Vor So 18h: Override löschen, grid_locked deaktivieren
@@ -568,6 +604,8 @@ class GridSetSelect(discord.ui.Select):
                 checkin_bot.state["last_grid_count"] = new_grid_count
                 from db import save_state as _save_state
                 _save_state({"grid_locked": False, "last_grid_count": new_grid_count})
+                _status_after = _get_driver_statuses(_all_regs_before, new_grid_count * _dpg)
+                await _send_grid_change_notifications(checkin_bot, _status_before, _status_after, _all_regs_before)
                 msg = f"🔓 Automatische Gridberechnung aktiv ({new_grid_count} Grids aktuell)."
         else:
             # Fixe Zahl: Override setzen + grid_locked aktivieren
@@ -577,6 +615,8 @@ class GridSetSelect(discord.ui.Select):
             checkin_bot.state["last_grid_count"] = count
             from db import save_state as _save_state
             _save_state({"grid_locked": True, "last_grid_count": count})
+            _status_after = _get_driver_statuses(_all_regs_before, count * _dpg)
+            await _send_grid_change_notifications(checkin_bot, _status_before, _status_after, _all_regs_before)
             msg = f"🔒 Grid-Anzahl manuell auf **{count}** festgelegt."
 
         await interaction.followup.send(msg, ephemeral=True)
