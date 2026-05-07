@@ -767,8 +767,6 @@ class AdminUI(commands.Cog):
         self.bot = bot
         bot.add_view(AdminViewFull())
         bot.add_view(AdminViewAboOnly())
-        # GridSetView mit max_grids=6 als Fallback registrieren (für persistente Views nach Neustart)
-        bot.add_view(GridSetView(6))
         self.tuesday_update.start()
 
     async def cog_load(self):
