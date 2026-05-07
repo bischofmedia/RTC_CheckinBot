@@ -530,6 +530,8 @@ async def _send_grid_change_notifications(checkin_bot, before: dict, after: dict
     to_grid = [psn[did] for did, status in after.items()
                if status == "grid" and before.get(did) == "warteliste"]
 
+    log.info(f"[Grid-Notif] before={len(before)} after={len(after)} to_waitlist={to_waitlist} to_grid={to_grid}")
+
     if to_waitlist:
         await checkin_bot.send_waitlist_msg(to_waitlist)
     if to_grid:
@@ -582,11 +584,18 @@ class GridSetSelect(discord.ui.Select):
 
         if value == "auto":
             # Automatisch: grid_locked deaktivieren (vor So 18h) oder einmalig berechnen + lock (nach So 18h)
-            driver_count = get_registration_count(race_id)
-            new_grid_count = checkin_bot.calculate_grids(driver_count)
-
             if is_sunday_locked:
                 # Nach So 18h: Gridanzahl einmalig berechnen und fixieren
+                # Override erst löschen damit calculate_grids korrekt rechnet
+                try:
+                    from db import get_connection
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("DELETE FROM checkin_grid_override WHERE race_id = %s", (race_id,))
+                except Exception as e:
+                    log.error(f"Grid-Override löschen fehlgeschlagen: {e}")
+                driver_count = get_registration_count(race_id)
+                new_grid_count = checkin_bot.calculate_grids(driver_count)
                 set_grid_override(race_id, new_grid_count, str(interaction.user.id))
                 checkin_bot.state["grid_locked"] = True
                 checkin_bot.state["last_grid_count"] = new_grid_count
@@ -604,6 +613,8 @@ class GridSetSelect(discord.ui.Select):
                             cur.execute("DELETE FROM checkin_grid_override WHERE race_id = %s", (race_id,))
                 except Exception as e:
                     log.error(f"Grid-Override löschen fehlgeschlagen: {e}")
+                driver_count = get_registration_count(race_id)
+                new_grid_count = checkin_bot.calculate_grids(driver_count)
                 checkin_bot.state["grid_locked"] = False
                 checkin_bot.state["last_grid_count"] = new_grid_count
                 from db import save_state as _save_state
