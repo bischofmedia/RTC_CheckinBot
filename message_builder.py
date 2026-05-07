@@ -239,7 +239,9 @@ def build_log_section(race_id: int) -> str:
 
     # Kapazität dynamisch: Grid-Override und grid_locked berücksichtigen
     try:
-        from checkin_bot import state as _cb_state, calculate_grids as _calc_grids
+        import sys as _sys
+        _cb = _sys.modules.get("__main__") or _sys.modules.get("checkin_bot")
+        _cb_state = getattr(_cb, "state", {}) if _cb else {}
         _locked = _cb_state.get("grid_locked", False)
         if _locked:
             _max_capacity = _cb_state.get("last_grid_count", _mg) * _dpg
@@ -378,8 +380,9 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
     if race and race_id:
         driver_count = get_registration_count(race_id)
         grid_count = get_current_grid_count(race_id, driver_count)
-        from checkin_bot import state as _state
-        _grid_locked = _state.get("grid_locked", False)
+        import sys as _sys
+        _cb = _sys.modules.get("__main__") or _sys.modules.get("checkin_bot")
+        _grid_locked = getattr(_cb, "state", {}).get("grid_locked", False) if _cb else False
         status_emoji, status_text = get_status(race_id, grid_count, driver_count, grid_locked=_grid_locked)
         closed = is_registration_closed()
 
