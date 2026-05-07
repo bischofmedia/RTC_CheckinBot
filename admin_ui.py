@@ -359,61 +359,44 @@ class DriverSelect(discord.ui.Select):
         if self.mode in ("anmelden", "abmelden") and changed:
             try:
                 import sys, asyncio as _asyncio
-                # Immer __main__ nehmen – nur dort ist bot korrekt initialisiert
-                checkin_bot = sys.modules.get("__main__")
-                if checkin_bot and not hasattr(checkin_bot, "state"):
-                    checkin_bot = sys.modules.get("checkin_bot")
-                log.info(f"[Admin] checkin_bot Modul: {checkin_bot}, changed: {changed}")
-                if checkin_bot and hasattr(checkin_bot, "state") and hasattr(checkin_bot, "update_checkin_message"):
+                checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
+                if checkin_bot:
                     _mode = self.mode
-                    # Anzahl abgemeldeter/angemeldeter Fahrer aus `changed` ableiten
-                    _n_changed = len([r for r in changed if ("angemeldet" in r or "abgemeldet" in r)])
-
                     async def _bg():
-                        import asyncio as _asyncio
-                        # Kurz warten damit die DB-Writes der admin-Connection committed sind
-                        await _asyncio.sleep(0.5)
                         try:
                             from db import get_registration_count, get_all_registrations
-                            _race_id = checkin_bot.state.get("current_race_id")
+                            new_count = get_registration_count(None)
+                            new_grids = checkin_bot.calculate_grids(new_count)
                             _dpg = checkin_bot.DRIVERS_PER_GRID
                             _mg = checkin_bot.MAX_GRIDS
 
                             if _mode == "anmelden":
+                                # Wartelisten-Nachricht
                                 _max = _mg * _dpg
-                                new_count = get_registration_count(_race_id)
                                 if new_count > _max:
-                                    waitlist_count = new_count - _max
-                                    just_registered = [r.split("`")[1] for r in changed if "angemeldet" in r]
-                                    waitlist_names = just_registered[-waitlist_count:]
-                                    if waitlist_names:
-                                        await checkin_bot.send_waitlist_msg(waitlist_names)
+                                    await checkin_bot.send_waitlist_msg([r.split("`")[1] for r in changed if "angemeldet" in r])
 
                             elif _mode == "abmelden":
-                                all_regs = get_all_registrations(_race_id)
-                                new_count = len(all_regs)
-                                new_grids = checkin_bot.calculate_grids(new_count)
-                                if checkin_bot.state.get("grid_locked"):
-                                    capacity = new_grids * _dpg
-                                else:
-                                    capacity = _mg * _dpg
-                                if new_count == capacity and new_count > 0:
-                                    moved = all_regs[capacity - 1]
+                                # Nachrücker-Nachricht
+                                all_regs = get_all_registrations(None)
+                                _max = new_grids * _dpg
+                                if len(all_regs) >= _max:
+                                    moved = all_regs[_max - 1]
                                     await checkin_bot.send_moved_up_msg([moved.get("psn_name", "")])
                         except Exception:
                             pass
                         try:
-                            await checkin_bot.update_checkin_message()
-                        except Exception as e:
-                            import logging as _log
-                            _log.getLogger("admin_ui").error(f"update_checkin_message fehlgeschlagen: {e}")
+                            channel = checkin_bot.bot.get_channel(checkin_bot.CHAN_CHECKIN)
+                            if not channel:
+                                channel = await checkin_bot.bot.fetch_channel(checkin_bot.CHAN_CHECKIN)
+                            await checkin_bot.update_checkin_message(channel=channel)
+                        except Exception:
+                            pass
                         try:
                             from sheets import sync_registrations_to_sheet
-                            _race_id = checkin_bot.state.get("current_race_id")
-                            sync_registrations_to_sheet(_race_id)
-                        except Exception as e:
-                            import logging as _log
-                            _log.getLogger("admin_ui").error(f"Sheet-Sync fehlgeschlagen: {e}")
+                            sync_registrations_to_sheet(None)
+                        except Exception:
+                            pass
                     _asyncio.create_task(_bg())
             except Exception as e:
                 errors.append(f"⚠️ Hintergrund-Update fehlgeschlagen: {e}")
@@ -522,6 +505,90 @@ async def _handle_mode(interaction: discord.Interaction, mode: str):
         )
 
 
+# ---------------------------------------------------------------------------
+# Grid-Festlegen Dropdown + View
+# ---------------------------------------------------------------------------
+
+class GridSetSelect(discord.ui.Select):
+    def __init__(self, max_grids: int):
+        options = [discord.SelectOption(label="Automatisch", value="auto", description="Grid-Anzahl automatisch berechnen")]
+        for n in range(1, max_grids + 1):
+            options.append(discord.SelectOption(label=f"{n} Grid{'s' if n > 1 else ''}", value=str(n)))
+        super().__init__(
+            placeholder="Grid-Anzahl wählen…",
+            options=options,
+            custom_id="adm_grid_select",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        import sys
+        checkin_bot = sys.modules.get("__main__")
+        if not checkin_bot or not hasattr(checkin_bot, "state"):
+            checkin_bot = sys.modules.get("checkin_bot")
+        if not checkin_bot:
+            await interaction.followup.send("❌ Interner Fehler.", ephemeral=True)
+            return
+
+        race_id = checkin_bot.state.get("current_race_id")
+        if not race_id:
+            await interaction.followup.send("❌ Kein aktives Rennen.", ephemeral=True)
+            return
+
+        value = self.values[0]
+        now = discord.utils.utcnow().astimezone(BERLIN)
+        is_sunday_locked = (now.weekday() == 6 and now.hour >= 18) or now.weekday() == 0
+
+        from db import set_grid_override, get_registration_count
+        from db import save_state_value
+
+        if value == "auto":
+            # Automatisch: grid_locked deaktivieren (vor So 18h) oder einmalig berechnen + lock (nach So 18h)
+            driver_count = get_registration_count(race_id)
+            new_grid_count = checkin_bot.calculate_grids(driver_count)
+
+            if is_sunday_locked:
+                # Nach So 18h: Gridanzahl einmalig berechnen und fixieren
+                set_grid_override(race_id, new_grid_count, str(interaction.user.id))
+                checkin_bot.state["grid_locked"] = True
+                checkin_bot.state["last_grid_count"] = new_grid_count
+                from db import save_state as _save_state
+                _save_state({"grid_locked": True, "last_grid_count": new_grid_count})
+                msg = f"🔒 Grid-Anzahl automatisch auf **{new_grid_count}** berechnet und fixiert."
+            else:
+                # Vor So 18h: Override löschen, grid_locked deaktivieren
+                try:
+                    from db import get_connection
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("DELETE FROM checkin_grid_override WHERE race_id = %s", (race_id,))
+                except Exception as e:
+                    log.error(f"Grid-Override löschen fehlgeschlagen: {e}")
+                checkin_bot.state["grid_locked"] = False
+                checkin_bot.state["last_grid_count"] = new_grid_count
+                from db import save_state as _save_state
+                _save_state({"grid_locked": False, "last_grid_count": new_grid_count})
+                msg = f"🔓 Automatische Gridberechnung aktiv ({new_grid_count} Grids aktuell)."
+        else:
+            # Fixe Zahl: Override setzen + grid_locked aktivieren
+            count = int(value)
+            set_grid_override(race_id, count, str(interaction.user.id))
+            checkin_bot.state["grid_locked"] = True
+            checkin_bot.state["last_grid_count"] = count
+            from db import save_state as _save_state
+            _save_state({"grid_locked": True, "last_grid_count": count})
+            msg = f"🔒 Grid-Anzahl manuell auf **{count}** festgelegt."
+
+        await interaction.followup.send(msg, ephemeral=True)
+        await checkin_bot.update_checkin_message()
+
+
+class GridSetView(discord.ui.View):
+    def __init__(self, max_grids: int):
+        super().__init__(timeout=60)
+        self.add_item(GridSetSelect(max_grids))
+
+
 class AdminViewFull(discord.ui.View):
     """Alle 6 Buttons — wenn ein Rennen am nächsten Montag ansteht."""
 
@@ -545,6 +612,26 @@ class AdminViewFull(discord.ui.View):
 
     @discord.ui.button(label="🔓 Entsperren", style=discord.ButtonStyle.success,   custom_id="adm_entsperren", row=2)
     async def btn_entsperren(self, i, b):  await _handle_mode(i, "entsperren")
+
+    @discord.ui.button(label="🔢 Grids", style=discord.ButtonStyle.secondary, custom_id="adm_grids", row=3)
+    async def btn_grids(self, interaction: discord.Interaction, button: discord.ui.Button):
+        import sys
+        checkin_bot = sys.modules.get("__main__") or sys.modules.get("checkin_bot")
+        max_grids = getattr(checkin_bot, "MAX_GRIDS", 6) if checkin_bot else 6
+        view = GridSetView(max_grids)
+        await interaction.response.send_message(
+            "**Grids festlegen**
+"
+            "Wähle eine fixe Gridanzahl oder *Automatisch*.
+"
+            "• **Zahl** → fixiert die Gridanzahl, kein Nachrechnen mehr (🔒)
+"
+            "• **Automatisch vor So 18h** → deaktiviert die Fixierung, Grids werden laufend neu berechnet
+"
+            "• **Automatisch nach So 18h** → berechnet die Gridanzahl einmalig neu und fixiert sie (🔒)",
+            view=view,
+            ephemeral=True,
+        )
 
 
 class AdminViewAboOnly(discord.ui.View):
@@ -681,6 +768,8 @@ class AdminUI(commands.Cog):
         self.bot = bot
         bot.add_view(AdminViewFull())
         bot.add_view(AdminViewAboOnly())
+        # GridSetView mit max_grids=6 als Fallback registrieren (für persistente Views nach Neustart)
+        bot.add_view(GridSetView(6))
         self.tuesday_update.start()
 
     async def cog_load(self):

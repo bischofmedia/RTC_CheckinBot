@@ -90,10 +90,10 @@ def get_current_grid_count(race_id: int, driver_count: int, sunday_locked: bool 
     return _calculate_grids(driver_count)
 
 
-def get_status(race_id: int, grid_count: int, driver_count: int) -> tuple[str, str]:
+def get_status(race_id: int, grid_count: int, driver_count: int, grid_locked: bool = False) -> tuple[str, str]:
     """
     Gibt (emoji, text) für den aktuellen Anmeldestatus zurück.
-    Berücksichtigt: offen, Warteliste, geschlossen (🔴)
+    Berücksichtigt: offen, Warteliste, geschlossen (🔴), grid_locked (🔒)
     """
     now = datetime.now(BERLIN)
     deadline_str = os.environ.get("REGISTRATION_DEADLINE", "20:45")
@@ -125,11 +125,12 @@ def get_status(race_id: int, grid_count: int, driver_count: int) -> tuple[str, s
         max_drivers = MAX_GRIDS * DRIVERS_PER_GRID
     free_slots = max_drivers - driver_count
 
+    lock_suffix = " 🔒" if grid_locked else ""
     if free_slots <= 0:
-        return "🟡", f"Warteliste aktiv · {driver_count} Fahrer · {grid_count} Grids"
+        return "🟡", f"Warteliste aktiv · {driver_count} Fahrer · {grid_count} Grids{lock_suffix}"
 
     # Normal → 🟢
-    return "🟢", f"Anmeldung offen · {driver_count} Fahrer · {grid_count} Grids"
+    return "🟢", f"Anmeldung offen · {driver_count} Fahrer · {grid_count} Grids{lock_suffix}"
 
 
 def _is_grid_locked(race_id: int) -> bool:
@@ -367,7 +368,9 @@ def build_channel_message(race_id: int | None = None, race: dict | None = None) 
     if race and race_id:
         driver_count = get_registration_count(race_id)
         grid_count = get_current_grid_count(race_id, driver_count)
-        status_emoji, status_text = get_status(race_id, grid_count, driver_count)
+        from checkin_bot import state as _state
+        _grid_locked = _state.get("grid_locked", False)
+        status_emoji, status_text = get_status(race_id, grid_count, driver_count, grid_locked=_grid_locked)
         closed = is_registration_closed()
 
         weather_emoji = _weather_emoji(race.get("weather_category", ""))
