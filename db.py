@@ -435,136 +435,6 @@ def get_driver_season_standings(driver_id: int, season_id: int) -> dict | None:
             return cur.fetchone()
 
 
-def get_driver_season_standings_with_drops(driver_id: int, season_id: int) -> dict | None:
-    """
-    Gibt den Saisonstand eines Fahrers zurück – mit Streichergebnissen.
-    Berechnet:
-      - races_started: Anzahl gefahrener Rennen
-      - active_drops: aktuell aktive Streicher (basierend auf race_number der gefahrenen Rennen)
-      - points_total_gross: Punkte ohne Streichung
-      - points_dropped: gestrichene Punkte (Summe der schlechtesten N Ergebnisse)
-      - points_total_net: Netto-Punkte nach Streichung
-      - position: aktuelle Position in der Gesamtwertung (netto)
-      - dropped_results: Liste der gestrichenen race_ids und Punkte
-    """
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            # Saison-Daten laden
-            cur.execute("""
-                SELECT drop_results, drop_after_race_1, drop_after_race_2, drop_after_race_3
-                FROM seasons WHERE season_id = %s
-            """, (season_id,))
-            season = cur.fetchone()
-            if not season:
-                return None
-
-            # Alle Ergebnisse des Fahrers in dieser Saison (inkl. race_number)
-            cur.execute("""
-                SELECT rr.race_id, rr.points_total, r.race_number
-                FROM race_results rr
-                JOIN races r ON r.race_id = rr.race_id
-                WHERE rr.driver_id = %s AND r.season_id = %s
-                ORDER BY r.race_number ASC
-            """, (driver_id, season_id))
-            results = cur.fetchall()
-
-            # Anzahl stattgefundener Rennen in dieser Saison (race_date <= heute)
-            from datetime import date as _date
-            cur.execute("""
-                SELECT COUNT(*) AS cnt, MAX(race_number) AS max_race_number
-                FROM races
-                WHERE season_id = %s AND race_date <= %s
-            """, (season_id, _date.today()))
-            season_races = cur.fetchone()
-            races_held = season_races["cnt"] or 0
-            max_race_number = season_races["max_race_number"] or 0
-
-            races_started = len(results)
-            # DNS/Nicht-Teilnahmen = stattgefundene Rennen minus Teilnahmen → implizite Nullen
-            dns_count = max(0, races_held - races_started)
-            points_gross = sum(r["points_total"] or 0 for r in results)
-
-            # Aktive Streicher basierend auf stattgefundenen Rennen (nicht nur gefahrenen)
-            active_drops = 0
-            if season["drop_after_race_1"] and max_race_number >= season["drop_after_race_1"]:
-                active_drops = 1
-            if season["drop_after_race_2"] and max_race_number >= season["drop_after_race_2"]:
-                active_drops = 2
-            if season["drop_after_race_3"] and max_race_number >= season["drop_after_race_3"]:
-                active_drops = 3
-            active_drops = min(active_drops, season["drop_results"] or 0)
-
-            # Alle Ergebnisse inkl. impliziter Nullen für DNS
-            all_points = sorted([r["points_total"] or 0 for r in results] + [0] * dns_count)
-            dropped_values = all_points[:active_drops]
-            points_dropped = sum(dropped_values)
-            points_net = points_gross - max(0, sum(v for v in dropped_values if v > 0))
-            # Netto = Brutto minus gestrichene Punkte die tatsächlich in results stehen
-            # (DNS-Nullen haben keine Punkte zum Abziehen)
-            points_net = points_gross - sum(v for v in dropped_values if v > 0)
-
-            # Gesamtposition: alle Fahrer dieser Saison mit Netto-Punkten berechnen
-            cur.execute("""
-                SELECT rr.driver_id, SUM(rr.points_total) AS gross
-                FROM race_results rr
-                JOIN races r ON r.race_id = rr.race_id
-                WHERE r.season_id = %s
-                GROUP BY rr.driver_id
-            """, (season_id,))
-            all_drivers_raw = cur.fetchall()
-
-            # Für jeden Fahrer Netto berechnen (vereinfacht: gross - drops analog zu oben)
-            driver_nets = []
-            for d in all_drivers_raw:
-                cur.execute("""
-                    SELECT rr.points_total, r.race_number
-                    FROM race_results rr
-                    JOIN races r ON r.race_id = rr.race_id
-                    WHERE rr.driver_id = %s AND r.season_id = %s
-                    ORDER BY rr.points_total ASC
-                """, (d["driver_id"], season_id))
-                d_results = cur.fetchall()
-                d_max_race = max((x["race_number"] for x in d_results), default=0)
-                d_drops = 0
-                if season["drop_after_race_1"] and d_max_race >= season["drop_after_race_1"]:
-                    d_drops = 1
-                if season["drop_after_race_2"] and d_max_race >= season["drop_after_race_2"]:
-                    d_drops = 2
-                if season["drop_after_race_3"] and d_max_race >= season["drop_after_race_3"]:
-                    d_drops = 3
-                d_drops = min(d_drops, season["drop_results"] or 0)
-                d_net = sum(x["points_total"] or 0 for x in d_results[d_drops:])
-                driver_nets.append((d["driver_id"], d_net))
-
-            driver_nets.sort(key=lambda x: x[1], reverse=True)
-            position = next((i + 1 for i, (did, _) in enumerate(driver_nets) if did == driver_id), None)
-
-            # Gestrichene Ergebnisse: zuerst DNS-Nullen, dann schlechteste echte Ergebnisse
-            n_dns_dropped = sum(1 for v in dropped_values if v == 0)
-            n_real_dropped = active_drops - n_dns_dropped
-            real_sorted = sorted(results, key=lambda r: r["points_total"] or 0)
-            dropped_real = real_sorted[:n_real_dropped]
-
-            dropped_results = []
-            if n_dns_dropped:
-                dropped_results.append({"race_id": None, "points": 0, "race_number": "DNS", "count": n_dns_dropped})
-            for r in dropped_real:
-                dropped_results.append({"race_id": r["race_id"], "points": r["points_total"], "race_number": r["race_number"]})
-
-            return {
-                "races_started": races_started,
-                "races_held": races_held,
-                "dns_count": dns_count,
-                "active_drops": active_drops,
-                "points_total_gross": points_gross,
-                "points_dropped": points_dropped,
-                "points_total_net": points_net,
-                "position": position,
-                "total_drivers": len(driver_nets),
-                "dropped_results": dropped_results,
-            }
-
-
 # ─────────────────────────────────────────────
 # Statistik (für Status-Button)
 # ─────────────────────────────────────────────
@@ -578,7 +448,9 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 SELECT COUNT(*) AS race_count
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
+                LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
+                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
             """, (driver_id, track_id))
             race_count = cur.fetchone()["race_count"]
 
@@ -594,7 +466,9 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
                 LEFT JOIN grids g ON g.grid_id = rr.grid_id
+                LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
+                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
                 ORDER BY s.season_id ASC, r.race_date ASC
             """, (driver_id, track_id))
             top3 = cur.fetchall()
@@ -605,8 +479,10 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 FROM race_results rr
                 JOIN races r ON r.race_id = rr.race_id
                 JOIN vehicles v ON v.vehicle_id = rr.vehicle_id
+                LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
                 AND rr.vehicle_id IS NOT NULL
+                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
             """, (driver_id, track_id))
             cars = [row["vehicle_name"] for row in cur.fetchall()]
 
@@ -635,7 +511,9 @@ def get_track_overall_stats(track_id: int) -> dict:
                 FROM races r
                 JOIN drivers d ON d.driver_id = r.fastest_lap_driver_id
                 JOIN seasons s ON s.season_id = r.season_id
+                LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL
+                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
                 ORDER BY r.fastest_lap_time ASC
                 LIMIT 1
             """, (track_id,))
