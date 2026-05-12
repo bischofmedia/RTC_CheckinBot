@@ -689,6 +689,14 @@ class AdminViewFull(discord.ui.View):
             view=view,
             ephemeral=True,
         )
+    @discord.ui.button(label="🔄 Neues Event", style=discord.ButtonStyle.danger, custom_id="adm_neues_event", row=4)
+    async def btn_neues_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ConfirmResetView(interaction.client)
+        await interaction.response.send_message(
+            "⚠️ **Neues Event starten?**\n\nDas löscht alle Anmeldungen und erstellt ein neues Event zum nächsten Rennen.",
+            view=view,
+            ephemeral=True,
+        )
 
 
 class ConfirmResetView(discord.ui.View):
