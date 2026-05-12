@@ -691,6 +691,31 @@ class AdminViewFull(discord.ui.View):
         )
 
 
+class ConfirmResetView(discord.ui.View):
+    """Bestätigungsdialog für Dienstags-Reset."""
+
+    def __init__(self, bot: commands.Bot):
+        super().__init__(timeout=60)
+        self.bot = bot
+
+    @discord.ui.button(label="✅ Ja, neues Event starten", style=discord.ButtonStyle.danger, custom_id="confirm_reset_yes")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        import sys
+        checkin_bot = sys.modules.get("checkin_bot") or sys.modules.get("__main__")
+        tuesday_reset = getattr(checkin_bot, "tuesday_reset", None)
+        if tuesday_reset:
+            await tuesday_reset()
+            await interaction.followup.send("✅ Neues Event gestartet.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Fehler: tuesday_reset nicht gefunden.", ephemeral=True)
+        self.stop()
+
+    @discord.ui.button(label="❌ Abbrechen", style=discord.ButtonStyle.secondary, custom_id="confirm_reset_no")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Abgebrochen.", view=None)
+        self.stop()
+      
 class AdminViewAboOnly(discord.ui.View):
     """Nur Abo- und Sperre-Buttons — bei Pause oder Saisonende."""
 
