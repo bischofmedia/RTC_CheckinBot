@@ -450,7 +450,7 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 JOIN races r ON r.race_id = rr.race_id
                 LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
-                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
+                AND gv.game = 'Gran Turismo 7'
             """, (driver_id, track_id))
             race_count = cur.fetchone()["race_count"]
 
@@ -468,7 +468,7 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 LEFT JOIN grids g ON g.grid_id = rr.grid_id
                 LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
-                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
+                AND gv.game = 'Gran Turismo 7'
                 ORDER BY s.season_id ASC, r.race_date ASC
             """, (driver_id, track_id))
             top3 = cur.fetchall()
@@ -482,7 +482,7 @@ def get_driver_track_stats(driver_id: int, track_id: int) -> dict:
                 LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE rr.driver_id = %s AND r.track_id = %s
                 AND rr.vehicle_id IS NOT NULL
-                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
+                AND gv.game = 'Gran Turismo 7'
             """, (driver_id, track_id))
             cars = [row["vehicle_name"] for row in cur.fetchall()]
 
@@ -513,7 +513,7 @@ def get_track_overall_stats(track_id: int) -> dict:
                 JOIN seasons s ON s.season_id = r.season_id
                 LEFT JOIN game_versions gv ON gv.version_id = r.version_id
                 WHERE r.track_id = %s AND r.fastest_lap_time IS NOT NULL
-                AND (gv.game IS NULL OR gv.game NOT LIKE '%Sport%')
+                AND gv.game = 'Gran Turismo 7'
                 ORDER BY r.fastest_lap_time ASC
                 LIMIT 1
             """, (track_id,))
