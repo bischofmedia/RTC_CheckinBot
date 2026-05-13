@@ -111,7 +111,6 @@ MSG_WAITLIST_MULTI      = _env_msg("MSG_WAITLIST_MULTI")
 MSG_WAITLIST_MULTI_EN   = _env_msg("MSG_WAITLIST_MULTI_EN")
 MSG_NEW_EVENT           = _env_msg("MSG_NEW_EVENT")
 MSG_NEW_EVENT_EN        = _env_msg("MSG_NEW_EVENT_EN")
-
 MSG_LOBBYCODES          = _env_msg("MSG_LOBBYCODES")
 MSG_HILFETEXT           = _env_msg("MSG_HILFETEXT")
 MSG_GRID_CHANGE_TEXT    = _env_msg("MSG_GRID_CHANGE_TEXT")
@@ -308,8 +307,9 @@ class AboAddView(discord.ui.View):
 
     @discord.ui.button(label="Daueranmeldung", style=discord.ButtonStyle.primary, custom_id="checkin_abo_add")
     async def abo_add(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         response, _ = await handle_abo_add(interaction)
-        await interaction.response.send_message(response, ephemeral=True)
+        await interaction.followup.send(response, ephemeral=True)
 
 
 class AboRemoveView(discord.ui.View):
@@ -318,8 +318,9 @@ class AboRemoveView(discord.ui.View):
 
     @discord.ui.button(label="Dauerabmeldung", style=discord.ButtonStyle.danger, custom_id="checkin_abo_remove")
     async def abo_remove(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         response, _ = await handle_abo_remove(interaction)
-        await interaction.response.send_message(response, ephemeral=True)
+        await interaction.followup.send(response, ephemeral=True)
 
 
 # ─────────────────────────────────────────────
@@ -637,7 +638,7 @@ async def send_sunday_msg():
 
 
 async def send_grid_change_msg(new_grids: int):
-    """Sendet eine Nachricht in den News-Channel wenn die Orga die Gridanzahl ändert."""
+    """Sendet eine Nachricht in den News-Channel wenn die Orga die Gridanzahl manuell festlegt."""
     raw = MSG_GRID_CHANGE_TEXT_EN if ENABLE_MULTILANGUAGE else MSG_GRID_CHANGE_TEXT
     text = _pick_msg(raw, grids=new_grids)
     if not text:
