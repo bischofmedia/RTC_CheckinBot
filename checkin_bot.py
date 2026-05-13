@@ -16,7 +16,7 @@ import discord
 from discord.ext import tasks, commands
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path="/home/ubuntu/RTC_CheckinBot/.env")
+load_dotenv(dotenv_path="/home/bismark/RTC_CheckinBot/.env")
 
 # ─────────────────────────────────────────────
 # Logging
@@ -111,8 +111,7 @@ MSG_WAITLIST_MULTI      = _env_msg("MSG_WAITLIST_MULTI")
 MSG_WAITLIST_MULTI_EN   = _env_msg("MSG_WAITLIST_MULTI_EN")
 MSG_NEW_EVENT           = _env_msg("MSG_NEW_EVENT")
 MSG_NEW_EVENT_EN        = _env_msg("MSG_NEW_EVENT_EN")
-MSG_NEW_EVENT_TEXT      = _env_msg("MSG_NEW_EVENT_TEXT")
-MSG_NEW_EVENT_TEXT_EN   = _env_msg("MSG_NEW_EVENT_TEXT_EN")
+
 MSG_LOBBYCODES          = _env_msg("MSG_LOBBYCODES")
 MSG_HILFETEXT           = _env_msg("MSG_HILFETEXT")
 MSG_GRID_CHANGE_TEXT    = _env_msg("MSG_GRID_CHANGE_TEXT")
@@ -180,7 +179,7 @@ def is_registration_closed() -> bool:
 
 def _save_msg_id(msg_id: int):
     try:
-        env_path = "/home/ubuntu/RTC_CheckinBot/.env"
+        env_path = "/home/bismark/RTC_CheckinBot/.env"
         with open(env_path, "r") as f:
             lines = f.readlines()
         with open(env_path, "w") as f:
@@ -635,6 +634,25 @@ async def send_sunday_msg():
     state["grid_locked"] = True
     save_state({"sunday_msg_sent": True, "grid_locked": True, "last_grid_count": grid_count})
     log.info(f"Sunday-Lock: {grid_count} Grids, {driver_count} Fahrer.")
+
+
+async def send_grid_change_msg(new_grids: int):
+    """Sendet eine Nachricht in den News-Channel wenn die Orga die Gridanzahl ändert."""
+    raw = MSG_GRID_CHANGE_TEXT_EN if ENABLE_MULTILANGUAGE else MSG_GRID_CHANGE_TEXT
+    text = _pick_msg(raw, grids=new_grids)
+    if not text:
+        return
+    channel = bot.get_channel(_news_channel())
+    if not channel:
+        try:
+            channel = await bot.fetch_channel(_news_channel())
+        except Exception as e:
+            log.error(f"send_grid_change_msg: fetch_channel fehlgeschlagen: {e}")
+            return
+    try:
+        await channel.send(text)
+    except Exception as e:
+        log.error(f"send_grid_change_msg: Senden fehlgeschlagen: {e}")
 
 # ─────────────────────────────────────────────
 # Dienstags-Reset

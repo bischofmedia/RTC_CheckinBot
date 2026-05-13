@@ -629,6 +629,7 @@ class GridSetSelect(discord.ui.Select):
             from db import save_state as _save_state
             _save_state({"grid_locked": True, "last_grid_count": count})
             _status_after = _get_driver_statuses(_all_regs_before, count * _dpg)
+            await checkin_bot.send_grid_change_msg(count)
             await _send_grid_change_notifications(checkin_bot, _status_before, _status_after, _all_regs_before)
             msg = f"🔒 Grid-Anzahl manuell auf **{count}** festgelegt."
 
