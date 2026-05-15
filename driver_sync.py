@@ -386,6 +386,20 @@ def sync_drivers() -> dict:
 
         # ── DB-Updates (Batch) ────────────────────────────────────────────────
         for driver_id, updates in db_batch_updates:
+            # psn_name nur setzen wenn nicht schon bei anderem Fahrer vergeben
+            if "psn_name" in updates:
+                cursor.execute(
+                    "SELECT driver_id FROM drivers WHERE psn_name = %s AND driver_id != %s",
+                    (updates["psn_name"], driver_id)
+                )
+                if cursor.fetchone():
+                    logger.warning(
+                        f"psn_name '{updates['psn_name']}' bereits vergeben "
+                        f"(driver_id={driver_id}) - wird übersprungen."
+                    )
+                    updates = {k: v for k, v in updates.items() if k != "psn_name"}
+                    if not updates:
+                        continue
             set_clause = ", ".join(f"`{k}` = %s" for k in updates)
             values     = list(updates.values()) + [driver_id]
             cursor.execute(
