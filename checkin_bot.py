@@ -341,10 +341,12 @@ async def resolve_driver_from_interaction(interaction: discord.Interaction):
     driver = resolve_driver(discord_id, nickname, queue_msg, bot=bot)
 
     if orga_messages:
-        channel = bot.get_channel(CHAN_ORGA)
-        if channel:
+        try:
+            channel = bot.get_channel(CHAN_ORGA) or await bot.fetch_channel(CHAN_ORGA)
             for msg in orga_messages:
                 await channel.send(msg)
+        except Exception as e:
+            log.error(f"Orga-Nachricht fehlgeschlagen: {e}")
 
     return driver
 
