@@ -24,7 +24,7 @@ SCOPES = [
 ]
 
 COL_PSN        = 2
-COL_NICK       = 10
+COL_NICK       = 9
 HEADER_ROW     = 6
 
 
@@ -180,6 +180,57 @@ def _save_driver_onboarding(driver_id: int, data: dict):
         log.error(f"Onboarding-Speicherung fehlgeschlagen: {e}")
 
 
+
+def _update_sheet_onboarding(driver_id: int, psn_name: str, gt7_name: str, start_number):
+    """Schreibt PSN-Name, GT7-Name und Startnummer nach dem Onboarding ins Sheet."""
+    try:
+        ws = _get_drvr_worksheet()
+        records = ws.get_all_values()
+        total_cols = len(records[HEADER_ROW]) if records else 110
+
+        # Zeile finden: letzte Spalte (Discord-ID) mit driver discord_id matchen
+        # Einfacher: Spalte J (COL_NICK) mit discord_name matchen
+        # Wir nehmen discord_id aus DB
+        from db import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT discord_name, discord_id FROM drivers WHERE driver_id = %s", (driver_id,))
+                row_db = cur.fetchone()
+        if not row_db:
+            return
+
+        discord_id = str(row_db["discord_id"]) if row_db.get("discord_id") else None
+        discord_name = row_db.get("discord_name", "")
+
+        target_row = None
+        for i, row in enumerate(records):
+            if i <= HEADER_ROW:
+                continue
+            # Match per Discord-ID (letzte Spalte) oder Discord-Nick (Spalte J)
+            last_cell = row[-1].strip() if row else ""
+            nick_cell = row[COL_NICK].strip() if len(row) > COL_NICK else ""
+            if (discord_id and last_cell == discord_id) or (discord_name and nick_cell == discord_name):
+                target_row = i + 1  # 1-basiert
+                break
+
+        if not target_row:
+            log.warning(f"Sheet-Zeile fuer driver_id={driver_id} nicht gefunden.")
+            return
+
+        updates = []
+        if psn_name:
+            updates.append({"range": gspread.utils.rowcol_to_a1(target_row, COL_PSN + 1), "values": [[psn_name]]})
+        if gt7_name:
+            updates.append({"range": gspread.utils.rowcol_to_a1(target_row, total_cols - 1), "values": [[gt7_name]]})
+        if start_number:
+            updates.append({"range": gspread.utils.rowcol_to_a1(target_row, 7), "values": [[str(start_number)]]})
+
+        if updates:
+            ws.batch_update(updates, value_input_option="USER_ENTERED")
+            log.info(f"Sheet-Onboarding-Update fuer Zeile {target_row} abgeschlossen.")
+    except Exception as e:
+        log.error(f"Sheet-Onboarding-Update fehlgeschlagen: {e}")
+
 async def _get_driver_discord_id_from_db(driver_id: int):
     from db import get_connection
     try:
@@ -202,6 +253,8 @@ class OnboardingState:
         self.discord_name    = discord_name
         self.psn_name        = None
         self.gt7_name        = None
+        self.team_id         = None
+        self.team_name       = None
         self.start_number    = None
         self.hardware_type   = None
         self.wheel_base_id   = None
@@ -264,10 +317,9 @@ class Gt7Modal(discord.ui.Modal, title="GT7-Nickname"):
         await interaction.response.edit_message(
             content=(
                 f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
-                f"Moechtest Du eine Startnummer (1-999) reservieren? "
-                f"Du kannst diesen Schritt auch ueberspringen."
+                f"In welchem Team fährst Du? (Freitext, wir suchen dann das passende Team)"
             ),
-            view=StartNumberView(self.state, self.news_message)
+            view=TeamInputView(self.state, self.news_message)
         )
 
 
@@ -280,6 +332,196 @@ class Gt7NickView(discord.ui.View):
     @discord.ui.button(label="GT7-Nick eingeben", style=discord.ButtonStyle.primary)
     async def enter_gt7(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(Gt7Modal(self.state, self.news_message))
+
+
+
+# ── Team-Fuzzymatching ────────────────────────────────────────────────────────
+
+def _fuzzy_match_teams(query: str) -> list:
+    """
+    Sucht Teams per Fuzzymatching gegen name und abbreviation.
+    Matcht wenn:
+    - query ist Substring von name (case-insensitiv)
+    - query ist Substring von abbreviation
+    - Anfangsbuchstaben der Eingabe matchen Anfangsbuchstaben der Teamname-Wörter
+    - Erste 3 Buchstaben der Eingabe matchen Anfang der abbreviation
+    """
+    from db import get_connection
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT team_id, name, abbreviation FROM teams "
+                    "WHERE is_active = 1 ORDER BY name"
+                )
+                teams = cur.fetchall()
+    except Exception as e:
+        log.error(f"Team-Abfrage fehlgeschlagen: {e}")
+        return []
+
+    q = query.strip().lower()
+    if not q:
+        return []
+
+    # Initialen aus Eingabe (z.B. "No Facksen Racing" -> "nfr")
+    input_initials = "".join(w[0] for w in query.split() if w).lower()
+    # Erste 3 Buchstaben der Eingabe
+    q3 = q[:3]
+
+    matches = []
+    for t in teams:
+        name = (t["name"] or "").lower()
+        abbr = (t["abbreviation"] or "").lower()
+        # Initialen aus Teamname
+        name_initials = "".join(w[0] for w in t["name"].split() if w).lower() if t["name"] else ""
+
+        if (q in name or
+            q in abbr or
+            (len(input_initials) >= 2 and input_initials == name_initials) or
+            (len(q3) >= 3 and abbr.startswith(q3))):
+            matches.append(t)
+
+    return matches
+
+
+class TeamInputView(discord.ui.View):
+    def __init__(self, state, news_message):
+        super().__init__(timeout=None)
+        self.state = state
+        self.news_message = news_message
+
+    @discord.ui.button(label="Team eingeben", style=discord.ButtonStyle.primary)
+    async def enter_team(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(TeamModal(self.state, self.news_message))
+
+    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary)
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            content="Möchtest Du eine Startnummer (1–999) reservieren?",
+            view=StartNumberView(self.state, self.news_message)
+        )
+
+
+class TeamModal(discord.ui.Modal, title="Team"):
+    team_input = discord.ui.TextInput(
+        label="Dein Team",
+        placeholder="z.B. No Facksen Racing oder NFR",
+        min_length=2, max_length=100
+    )
+
+    def __init__(self, state, news_message):
+        super().__init__()
+        self.state = state
+        self.news_message = news_message
+
+    async def on_submit(self, interaction: discord.Interaction):
+        query = self.team_input.value.strip()
+        matches = _fuzzy_match_teams(query)
+
+        if not matches:
+            # Kein Match – direkt als Freitext speichern
+            self.state.team_name = query
+            self.state.team_id = None
+            await interaction.response.edit_message(
+                content=(
+                    f"Kein passendes Team gefunden – **{query}** wird als Teamname gespeichert.\n\n"
+                    f"Möchtest Du eine Startnummer (1–999) reservieren?"
+                ),
+                view=StartNumberView(self.state, self.news_message)
+            )
+        elif len(matches) == 1:
+            # Genau ein Match – Bestätigung anzeigen
+            await interaction.response.edit_message(
+                content=f"Meinst Du **{matches[0]['name']}**?",
+                view=TeamConfirmView(self.state, self.news_message, matches[0], query)
+            )
+        else:
+            # Mehrere Matches – Pulldown
+            await interaction.response.edit_message(
+                content=f"Mehrere Teams gefunden – bitte wähle Deins aus:",
+                view=TeamSelectView(self.state, self.news_message, matches, query)
+            )
+
+
+class TeamConfirmView(discord.ui.View):
+    def __init__(self, state, news_message, team: dict, original_input: str):
+        super().__init__(timeout=None)
+        self.state = state
+        self.news_message = news_message
+        self.team = team
+        self.original_input = original_input
+
+    @discord.ui.button(label="Ja, das ist mein Team", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.state.team_id = self.team["team_id"]
+        self.state.team_name = self.team["name"]
+        await interaction.response.edit_message(
+            content=(
+                f"✅ Team gespeichert: **{self.team['name']}**\n\n"
+                f"Möchtest Du eine Startnummer (1–999) reservieren?"
+            ),
+            view=StartNumberView(self.state, self.news_message)
+        )
+
+    @discord.ui.button(label="Nein, eigene Eingabe übernehmen", style=discord.ButtonStyle.secondary)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.state.team_id = None
+        self.state.team_name = self.original_input
+        await interaction.response.edit_message(
+            content=(
+                f"**{self.original_input}** wird als Teamname gespeichert.\n\n"
+                f"Möchtest Du eine Startnummer (1–999) reservieren?"
+            ),
+            view=StartNumberView(self.state, self.news_message)
+        )
+
+
+class TeamSelectView(discord.ui.View):
+    def __init__(self, state, news_message, matches: list, original_input: str):
+        super().__init__(timeout=None)
+        self.state = state
+        self.news_message = news_message
+        self.original_input = original_input
+        self.add_item(TeamSelectDropdown(state, news_message, matches, original_input))
+
+    @discord.ui.button(label="Eigene Eingabe übernehmen", style=discord.ButtonStyle.secondary, row=1)
+    async def use_own(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.state.team_id = None
+        self.state.team_name = self.original_input
+        await interaction.response.edit_message(
+            content=(
+                f"**{self.original_input}** wird als Teamname gespeichert.\n\n"
+                f"Möchtest Du eine Startnummer (1–999) reservieren?"
+            ),
+            view=StartNumberView(self.state, self.news_message)
+        )
+
+
+class TeamSelectDropdown(discord.ui.Select):
+    def __init__(self, state, news_message, matches: list, original_input: str):
+        self.state = state
+        self.news_message = news_message
+        self.original_input = original_input
+        # Max 25 Optionen in Discord
+        options = [
+            discord.SelectOption(label=t["name"][:100], value=str(t["team_id"]))
+            for t in matches[:25]
+        ]
+        super().__init__(placeholder="Team auswählen…", options=options)
+        self.matches = matches
+
+    async def callback(self, interaction: discord.Interaction):
+        team_id = int(self.values[0])
+        team = next(t for t in self.matches if t["team_id"] == team_id)
+        self.state.team_id = team_id
+        self.state.team_name = team["name"]
+        await interaction.response.edit_message(
+            content=(
+                f"✅ Team gespeichert: **{team['name']}**\n\n"
+                f"Möchtest Du eine Startnummer (1–999) reservieren?"
+            ),
+            view=StartNumberView(self.state, self.news_message)
+        )
 
 
 # Schritt 3: Startnummer
@@ -593,8 +835,11 @@ class VrView(discord.ui.View):
 # Abschluss
 
 async def _finish_onboarding(interaction: discord.Interaction, state: OnboardingState):
+    # Discord-Nick als PSN-Fallback falls kein PSN eingegeben
+    effective_psn = state.psn_name or state.discord_name
+
     _save_driver_onboarding(state.driver_id, {
-        "psn_name":        state.psn_name,
+        "psn_name":        effective_psn,
         "gt7_name":        state.gt7_name,
         "start_number":    state.start_number,
         "hardware_type":   state.hardware_type,
@@ -603,9 +848,30 @@ async def _finish_onboarding(interaction: discord.Interaction, state: Onboarding
         "uses_vr":         int(state.uses_vr) if state.uses_vr is not None else None,
     })
 
-    lines = ["Alles gespeichert! Viel Spass bei Deinem ersten Rennen in der RTC. 🏁\n"]
-    if state.psn_name:      lines.append(f"**PSN:** {state.psn_name}")
+    # Team-Mitgliedschaft eintragen wenn team_id vorhanden
+    if state.team_id:
+        from db import get_connection
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Aktuelle Race-ID holen fuer team_membership
+                    cur.execute(
+                        "INSERT IGNORE INTO team_memberships (driver_id, team_id, race_id) "
+                        "SELECT %s, %s, race_id FROM races "
+                        "ORDER BY race_id DESC LIMIT 1",
+                        (state.driver_id, state.team_id)
+                    )
+                    conn.commit()
+        except Exception as e:
+            log.error(f"Team-Mitgliedschaft fehlgeschlagen: {e}")
+
+    # Onboarding-Daten ins Sheet schreiben
+    _update_sheet_onboarding(state.driver_id, effective_psn, state.gt7_name, state.start_number)
+
+    lines = ["Alles gespeichert! Viel Spaß bei Deinem ersten Rennen in der RTC. 🏁\n"]
+    if effective_psn:       lines.append(f"**PSN:** {effective_psn}")
     if state.gt7_name:      lines.append(f"**GT7-Nick:** {state.gt7_name}")
+    if state.team_name:     lines.append(f"**Team:** {state.team_name}")
     if state.start_number:  lines.append(f"**Startnummer:** #{state.start_number}")
     if state.hardware_type == "controller": lines.append("**Hardware:** Controller")
     elif state.hardware_type == "wheel":    lines.append("**Hardware:** Lenkrad")
@@ -618,8 +884,9 @@ async def _finish_onboarding(interaction: discord.Interaction, state: Onboarding
         chan_log = interaction.client.get_channel(int(os.environ.get("CHAN_LOG", 0)))
         if chan_log:
             orga_lines = [f"Onboarding abgeschlossen: **{state.discord_name}**"]
-            if state.psn_name:     orga_lines.append(f"  PSN: {state.psn_name}")
+            if effective_psn:      orga_lines.append(f"  PSN: {effective_psn}")
             if state.gt7_name:     orga_lines.append(f"  GT7: {state.gt7_name}")
+            if state.team_name:    orga_lines.append(f"  Team: {state.team_name}")
             if state.start_number: orga_lines.append(f"  Startnummer: #{state.start_number}")
             await chan_log.send("\n".join(orga_lines))
     except Exception as e:
@@ -741,14 +1008,14 @@ async def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bo
 
     # 4. Komplett neu anlegen
     log.warning(f"Neuer unbekannter Fahrer: {nickname} ({discord_id}) - lege automatisch an.")
-    driver_id = create_driver(discord_id, nickname)
+    driver_id = create_driver(discord_id, nickname, psn_name=nickname)
     _add_driver_to_sheet(discord_id, nickname)
     driver = get_driver_by_discord_id(discord_id)
 
     if orga_notify_fn:
         orga_notify_fn(
             f"Neuer Fahrer **{nickname}** wurde automatisch in DB und Sheet eingetragen "
-            f"und in CHAN_LOG kontaktiert, um weitere Daten zu ergaenzen."
+            f"und in #👋_checkin_🍻_talk kontaktiert, um weitere Daten zu ergänzen."
         )
 
     if bot and driver:
