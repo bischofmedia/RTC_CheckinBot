@@ -296,9 +296,13 @@ FIELD_TO_COL = {
 }
 
 
-def apply_sheet_updates(worksheet, row_idx: int, row: list, sheet_updates: dict):
-    """Schreibt fehlende Felder aus der DB zurück ins Sheet (nur leere Zellen)."""
+def collect_sheet_updates(row_idx: int, row: list, sheet_updates: dict) -> list[dict]:
+    """
+    Sammelt Sheet-Updates als gspread batch_update-Einträge (kein API-Call).
+    Rückgabe: Liste von {'range': 'A1-Notation', 'values': [[wert]]}
+    """
     total_cols = len(row)
+    updates = []
 
     for field, value in sheet_updates.items():
         if field in FIELD_TO_COL:
@@ -312,7 +316,9 @@ def apply_sheet_updates(worksheet, row_idx: int, row: list, sheet_updates: dict)
 
         # gspread: 1-basiert, Zeile = row_idx + 1
         cell = gspread.utils.rowcol_to_a1(row_idx + 1, col_idx + 1)
-        worksheet.update_acell(cell, str(value))
+        updates.append({"range": cell, "values": [[str(value)]]})
+
+    return updates
 
 
 # ── Haupt-Sync-Funktion ───────────────────────────────────────────────────────
@@ -416,9 +422,14 @@ def sync_drivers() -> dict:
             f"DB-Commit: {len(db_batch_updates)} Updates, {len(new_drivers)} Neuanlagen."
         )
 
-        # ── Sheet-Rückschreiben (nach DB-Commit, damit kein Rollback nötig) ───
+        # ── Sheet-Rückschreiben (nach DB-Commit, ein einziger batch_update) ───
+        all_cell_updates = []
         for row_idx, row, sheet_updates in sheet_batch_writes:
-            apply_sheet_updates(worksheet, row_idx, row, sheet_updates)
+            all_cell_updates.extend(collect_sheet_updates(row_idx, row, sheet_updates))
+
+        if all_cell_updates:
+            worksheet.batch_update(all_cell_updates, value_input_option="USER_ENTERED")
+            logger.info(f"Sheet-Batch-Update: {len(all_cell_updates)} Zellen geschrieben.")
 
     except Exception as e:
         conn.rollback()
