@@ -24,7 +24,7 @@ SCOPES = [
 ]
 
 COL_PSN        = 2
-COL_NICK       = 9
+COL_NICK       = 10
 HEADER_ROW     = 6
 
 
@@ -80,8 +80,20 @@ def _add_driver_to_sheet(discord_id: str, discord_name: str):
     try:
         ws = _get_drvr_worksheet()
         records = ws.get_all_values()
-        next_row = len(records) + 1
         total_cols = len(records[HEADER_ROW]) if records else 110
+        # Erste leere Zeile nach dem Datenbereich suchen (ab Zeile HEADER_ROW+2)
+        next_row = None
+        for i in range(HEADER_ROW + 1, len(records)):
+            # Zeile gilt als leer wenn PSN-Name (COL_PSN) und Discord-Name (COL_NICK) leer
+            row = records[i]
+            psn  = row[COL_PSN].strip()  if len(row) > COL_PSN  else ""
+            nick = row[COL_NICK].strip() if len(row) > COL_NICK else ""
+            if not psn and not nick:
+                next_row = i + 1  # 1-basiert fuer gspread
+                break
+        if next_row is None:
+            # Keine leere Zeile gefunden - ans Ende anhaengen
+            next_row = len(records) + 1
         ws.update_cell(next_row, COL_NICK + 1, discord_name)
         ws.update_cell(next_row, total_cols, discord_id)
         log.info(f"Neuer Fahrer '{discord_name}' in Sheet Zeile {next_row} eingetragen.")
@@ -252,7 +264,7 @@ class Gt7Modal(discord.ui.Modal, title="GT7-Nickname"):
         await interaction.response.edit_message(
             content=(
                 f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
-                f"Möchtest Du eine Startnummer (1-999) reservieren? "
+                f"Moechtest Du eine Startnummer (1-999) reservieren? "
                 f"Du kannst diesen Schritt auch ueberspringen."
             ),
             view=StartNumberView(self.state, self.news_message)
@@ -290,7 +302,7 @@ class StartNumberModal(discord.ui.Modal, title="Startnummer"):
             await interaction.response.edit_message(
                 content=(
                     "Ungueltige Eingabe. Bitte gib eine Zahl zwischen 1 und 999 ein.\n\n"
-                    "Möchtest Du eine Startnummer reservieren?"
+                    "Moechtest Du eine Startnummer reservieren?"
                 ),
                 view=StartNumberView(self.state, self.news_message)
             )
@@ -301,8 +313,8 @@ class StartNumberModal(discord.ui.Modal, title="Startnummer"):
             await interaction.response.edit_message(
                 content=(
                     f"Die Nummer **{num}** ist bereits vergeben. "
-                    f"Bitte wähle eine andere Nummer.\n\n"
-                    f"Möchtest Du eine Startnummer reservieren?"
+                    f"Bitte waehle eine andere Nummer.\n\n"
+                    f"Moechtest Du eine Startnummer reservieren?"
                 ),
                 view=StartNumberView(self.state, self.news_message)
             )
@@ -324,7 +336,7 @@ class StartNumberView(discord.ui.View):
     async def enter_number(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(StartNumberModal(self.state, self.news_message))
 
-    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Ueberspringen", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             content="Welche Hardware nutzt Du?",
@@ -354,11 +366,11 @@ class HardwareTypeView(discord.ui.View):
         bases = _get_hardware_list("base")
         brands = sorted(set(b["brand"] for b in bases))
         await interaction.response.edit_message(
-            content="Lenkrad ausgewaehlt.\n\nBitte wähle den Hersteller Deiner Wheel-Base:",
+            content="Lenkrad ausgewaehlt.\n\nBitte waehle den Hersteller Deiner Wheel-Base:",
             view=BaseBrandView(self.state, self.news_message, bases, brands)
         )
 
-    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Ueberspringen", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             content="Nutzt Du VR?",
@@ -376,12 +388,12 @@ class BaseBrandView(discord.ui.View):
         self.bases = bases
         self.add_item(BaseBrandSelect(state, news_message, bases, brands))
 
-    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Ueberspringen", style=discord.ButtonStyle.secondary, row=1)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         pedals = _get_hardware_list("pedals")
         brands = sorted(set(p["brand"] for p in pedals))
         await interaction.response.edit_message(
-            content="Bitte wähle den Hersteller Deiner Pedale:",
+            content="Bitte waehle den Hersteller Deiner Pedale:",
             view=PedalsBrandView(self.state, self.news_message, pedals, brands)
         )
 
@@ -393,7 +405,7 @@ class BaseBrandSelect(discord.ui.Select):
         self.bases = bases
         options = [discord.SelectOption(label=b, value=b) for b in brands]
         options.append(discord.SelectOption(label="Andere", value="__andere__"))
-        super().__init__(placeholder="Hersteller wählen...", options=options)
+        super().__init__(placeholder="Hersteller waehlen...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         brand = self.values[0]
@@ -404,7 +416,7 @@ class BaseBrandSelect(discord.ui.Select):
             return
         models = [b for b in self.bases if b["brand"] == brand]
         await interaction.response.edit_message(
-            content=f"Hersteller: **{brand}**\n\nBitte wähle Deine Wheel-Base:",
+            content=f"Hersteller: **{brand}**\n\nBitte waehle Deine Wheel-Base:",
             view=BaseModelView(self.state, self.news_message, brand, models)
         )
 
@@ -417,12 +429,12 @@ class BaseModelView(discord.ui.View):
         self.brand = brand
         self.add_item(BaseModelSelect(state, news_message, models))
 
-    @discord.ui.button(label="Zurück", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Zurueck", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         bases = _get_hardware_list("base")
         brands = sorted(set(b["brand"] for b in bases))
         await interaction.response.edit_message(
-            content="Bitte wähle den Hersteller Deiner Wheel-Base:",
+            content="Bitte waehle den Hersteller Deiner Wheel-Base:",
             view=BaseBrandView(self.state, self.news_message, bases, brands)
         )
 
@@ -435,14 +447,14 @@ class BaseModelSelect(discord.ui.Select):
             discord.SelectOption(label=m["model"], value=str(m["hardware_id"]))
             for m in models
         ]
-        super().__init__(placeholder="Modell wählen...", options=options)
+        super().__init__(placeholder="Modell waehlen...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         self.state.wheel_base_id = int(self.values[0])
         pedals = _get_hardware_list("pedals")
         brands = sorted(set(p["brand"] for p in pedals))
         await interaction.response.edit_message(
-            content="Wheel-Base gespeichert.\n\nBitte wähle den Hersteller Deiner Pedale:",
+            content="Wheel-Base gespeichert.\n\nBitte waehle den Hersteller Deiner Pedale:",
             view=PedalsBrandView(self.state, self.news_message, pedals, brands)
         )
 
@@ -468,7 +480,7 @@ class CustomHardwareModal(discord.ui.Modal, title="Andere Hardware"):
             brands = sorted(set(p["brand"] for p in pedals))
             await interaction.response.edit_message(
                 content=f"Wheel-Base eingetragen: **{brand_val} {model_val}**\n\n"
-                        f"Bitte wähle den Hersteller Deiner Pedale:",
+                        f"Bitte waehle den Hersteller Deiner Pedale:",
                 view=PedalsBrandView(self.state, self.news_message, pedals, brands)
             )
         else:
@@ -489,7 +501,7 @@ class PedalsBrandView(discord.ui.View):
         self.pedals = pedals
         self.add_item(PedalsBrandSelect(state, news_message, pedals, brands))
 
-    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Ueberspringen", style=discord.ButtonStyle.secondary, row=1)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             content="Nutzt Du VR?",
@@ -504,7 +516,7 @@ class PedalsBrandSelect(discord.ui.Select):
         self.pedals = pedals
         options = [discord.SelectOption(label=b, value=b) for b in brands]
         options.append(discord.SelectOption(label="Andere", value="__andere__"))
-        super().__init__(placeholder="Hersteller wählen...", options=options)
+        super().__init__(placeholder="Hersteller waehlen...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         brand = self.values[0]
@@ -515,7 +527,7 @@ class PedalsBrandSelect(discord.ui.Select):
             return
         models = [p for p in self.pedals if p["brand"] == brand]
         await interaction.response.edit_message(
-            content=f"Hersteller: **{brand}**\n\nBitte wähle Deine Pedale:",
+            content=f"Hersteller: **{brand}**\n\nBitte waehle Deine Pedale:",
             view=PedalsModelView(self.state, self.news_message, models)
         )
 
@@ -527,12 +539,12 @@ class PedalsModelView(discord.ui.View):
         self.news_message = news_message
         self.add_item(PedalsModelSelect(state, news_message, models))
 
-    @discord.ui.button(label="Zurück", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Zurueck", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         pedals = _get_hardware_list("pedals")
         brands = sorted(set(p["brand"] for p in pedals))
         await interaction.response.edit_message(
-            content="Bitte wähle den Hersteller Deiner Pedale:",
+            content="Bitte waehle den Hersteller Deiner Pedale:",
             view=PedalsBrandView(self.state, self.news_message, pedals, brands)
         )
 
@@ -545,7 +557,7 @@ class PedalsModelSelect(discord.ui.Select):
             discord.SelectOption(label=m["model"], value=str(m["hardware_id"]))
             for m in models
         ]
-        super().__init__(placeholder="Modell wählen...", options=options)
+        super().__init__(placeholder="Modell waehlen...", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         self.state.wheel_pedals_id = int(self.values[0])
@@ -573,7 +585,7 @@ class VrView(discord.ui.View):
         self.state.uses_vr = False
         await _finish_onboarding(interaction, self.state)
 
-    @discord.ui.button(label="Überspringen", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Ueberspringen", style=discord.ButtonStyle.secondary)
     async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _finish_onboarding(interaction, self.state)
 
@@ -645,7 +657,7 @@ class WelcomeView(discord.ui.View):
         state = OnboardingState(self.driver_id, self.discord_name)
         await interaction.response.send_message(
             f"Hallo {interaction.user.mention}, willkommen in der RTC!\n\n"
-            f"Vor dem ersten Rennen benötigen wir noch ein paar Angaben von Dir. "
+            f"Vor dem ersten Rennen benoetigen wir noch ein paar Angaben von Dir. "
             f"Fangen wir mit Deinem PSN-Namen an:",
             view=PsnView(state, None),
             ephemeral=True

@@ -279,12 +279,12 @@ class CheckinView(discord.ui.View):
 
     @discord.ui.button(label="Anmelden", style=discord.ButtonStyle.success, custom_id="checkin_register")
     async def register(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.send_message("⏳ Einen Moment...", ephemeral=True)
         response, view = await handle_register(interaction)
         if view:
-            await interaction.followup.send(response, view=view, ephemeral=True)
+            await interaction.edit_original_response(content=response, view=view)
         else:
-            await interaction.followup.send(response, ephemeral=True)
+            await interaction.edit_original_response(content=response)
 
     @discord.ui.button(label="Abmelden", style=discord.ButtonStyle.danger, custom_id="checkin_unregister")
     async def unregister(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -338,7 +338,7 @@ async def resolve_driver_from_interaction(interaction: discord.Interaction):
     def queue_msg(text):
         orga_messages.append(text)
 
-    driver = await resolve_driver(discord_id, nickname, queue_msg, bot=bot)
+    driver = resolve_driver(discord_id, nickname, queue_msg, bot=bot)
 
     if orga_messages:
         try:
@@ -552,7 +552,7 @@ async def handle_status(interaction: discord.Interaction):
     member = interaction.user
     nickname = member.nick if hasattr(member, 'nick') and member.nick else member.name
 
-    driver = await resolve_driver(discord_id, nickname, bot=bot)
+    driver = resolve_driver(discord_id, nickname, bot=bot)
     if not driver:
         return "❌ Dein Profil wurde nicht gefunden.", None
 
