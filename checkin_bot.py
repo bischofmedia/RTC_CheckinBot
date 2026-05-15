@@ -338,7 +338,7 @@ async def resolve_driver_from_interaction(interaction: discord.Interaction):
     def queue_msg(text):
         orga_messages.append(text)
 
-    driver = resolve_driver(discord_id, nickname, queue_msg, bot=bot)
+    driver = await resolve_driver(discord_id, nickname, queue_msg, bot=bot)
 
     if orga_messages:
         try:
@@ -552,7 +552,7 @@ async def handle_status(interaction: discord.Interaction):
     member = interaction.user
     nickname = member.nick if hasattr(member, 'nick') and member.nick else member.name
 
-    driver = resolve_driver(discord_id, nickname, bot=bot)
+    driver = await resolve_driver(discord_id, nickname, bot=bot)
     if not driver:
         return "❌ Dein Profil wurde nicht gefunden.", None
 

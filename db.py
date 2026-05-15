@@ -161,8 +161,8 @@ def create_driver(discord_id: str, nickname: str) -> int:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO drivers (psn_name, discord_id, discord_name, is_active, is_legacy)
-                VALUES (%s, %s, %s, 1, 0)
+                INSERT INTO drivers (psn_name, discord_id, discord_name, is_active, is_legacy, current_rating)
+                VALUES (%s, %s, %s, 1, 0, 0.0)
             """, (nickname, discord_id, nickname))
             return cur.lastrowid
 

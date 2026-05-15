@@ -64,7 +64,7 @@ COL_PSN_NAME     = 2   # C  – PSN-Name
 COL_RANKING      = 3   # D  – akt. Ranking  (z.B. "104,49%")
 COL_NAT          = 4   # E  – Nationalität (Flaggen-Emoji)
 COL_START_NUMBER = 6   # G  – Startnummer
-COL_DISCORD_NAME = 10  # K  – Discord-Name/Nick
+COL_DISCORD_NAME = 9   # J  – Discord-Name/Nick
 
 # Die letzten drei Spalten (Indizes werden dynamisch ermittelt)
 # Reihenfolge: ..., PSN-Name (Referenz), GT7-Name, Discord-ID
@@ -236,7 +236,7 @@ def find_db_match(sheet_driver: dict, db_index: dict) -> dict | None:
 
 # ── Sync-Logik ────────────────────────────────────────────────────────────────
 
-SYNC_FIELDS = ["psn_name", "discord_id", "discord_name", "gt7_name", "nat", "start_number"]
+SYNC_FIELDS = ["psn_name", "discord_id", "discord_name", "gt7_name", "start_number"]
 # current_rating wird separat behandelt (immer aus Sheet übernehmen)
 
 
