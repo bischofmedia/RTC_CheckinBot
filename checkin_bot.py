@@ -76,6 +76,7 @@ CHAN_CHECKIN_MSG_ID             = _env("CHAN_CHECKIN_MSG_ID", "") or None
 CHAN_NEWS                      = int(_env("CHAN_NEWS", "0"))
 CHAN_CODES                     = int(_env("CHAN_CODES", "0"))
 CHAN_ORGA                      = int(_env("CHAN_ORGA", "0"))
+CHAN_LOG                       = int(_env("CHAN_LOG", "0"))
 USER_ID_ORGA                   = [int(u.strip()) for u in _env("USER_ID_ORGA", "").split(";") if u.strip()]
 DRIVERS_PER_GRID               = _env_int("DRIVERS_PER_GRID", 15)
 MAX_GRIDS                      = _env_int("MAX_GRIDS", 4)
@@ -337,7 +338,7 @@ async def resolve_driver_from_interaction(interaction: discord.Interaction):
     def queue_msg(text):
         orga_messages.append(text)
 
-    driver = resolve_driver(discord_id, nickname, queue_msg)
+    driver = resolve_driver(discord_id, nickname, queue_msg, bot=bot)
 
     if orga_messages:
         channel = bot.get_channel(CHAN_ORGA)
@@ -549,7 +550,7 @@ async def handle_status(interaction: discord.Interaction):
     member = interaction.user
     nickname = member.nick if hasattr(member, 'nick') and member.nick else member.name
 
-    driver = resolve_driver(discord_id, nickname)
+    driver = resolve_driver(discord_id, nickname, bot=bot)
     if not driver:
         return "❌ Dein Profil wurde nicht gefunden.", None
 
