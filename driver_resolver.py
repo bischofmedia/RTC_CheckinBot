@@ -147,6 +147,17 @@ def _save_driver_onboarding(driver_id: int, data: dict):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # psn_name: nur setzen wenn nicht schon bei anderem Fahrer vergeben
+                if "psn_name" in fields:
+                    cur.execute(
+                        "SELECT driver_id FROM drivers WHERE psn_name = %s AND driver_id != %s",
+                        (fields["psn_name"], driver_id)
+                    )
+                    if cur.fetchone():
+                        log.warning(f"PSN-Name '{fields['psn_name']}' bereits vergeben - wird nicht gesetzt.")
+                        del fields["psn_name"]
+                if not fields:
+                    return
                 set_clause = ", ".join(f"`{k}` = %s" for k in fields)
                 cur.execute(
                     f"UPDATE drivers SET {set_clause} WHERE driver_id = %s",
@@ -661,7 +672,7 @@ async def _post_welcome_message(bot, driver_id: int, discord_id: str, discord_na
 
 # Haupt-Resolver
 
-def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bot=None):
+async def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bot=None):
     # 1. DB: Discord-ID
     driver = get_driver_by_discord_id(discord_id)
     if driver:
@@ -679,11 +690,13 @@ def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bot=None
         driver["discord_id"] = discord_id
         return driver
 
-    # 2b. Sync + nochmal suchen
+    # 2b. Sync + nochmal suchen (in Thread, damit asyncio nicht blockiert)
     try:
         from driver_sync import sync_drivers
+        import asyncio
         log.info(f"Fahrer '{nickname}' nicht in DB - fuehre driver_sync aus.")
-        sync_drivers()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, sync_drivers)
     except Exception as e:
         log.error(f"driver_sync fehlgeschlagen: {e}")
 
