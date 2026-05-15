@@ -94,8 +94,12 @@ def _add_driver_to_sheet(discord_id: str, discord_name: str):
         if next_row is None:
             # Keine leere Zeile gefunden - ans Ende anhaengen
             next_row = len(records) + 1
-        ws.update_cell(next_row, COL_NICK + 1, discord_name)
-        ws.update_cell(next_row, total_cols, discord_id)
+        updates = [
+            {"range": gspread.utils.rowcol_to_a1(next_row, COL_PSN + 1),  "values": [[discord_name]]},
+            {"range": gspread.utils.rowcol_to_a1(next_row, COL_NICK + 1), "values": [[discord_name]]},
+            {"range": gspread.utils.rowcol_to_a1(next_row, total_cols),   "values": [[discord_id]]},
+        ]
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
         log.info(f"Neuer Fahrer '{discord_name}' in Sheet Zeile {next_row} eingetragen.")
     except Exception as e:
         log.error(f"Sheet-Eintrag fuer neuen Fahrer fehlgeschlagen: {e}")
@@ -314,13 +318,41 @@ class Gt7Modal(discord.ui.Modal, title="GT7-Nickname"):
 
     async def on_submit(self, interaction: discord.Interaction):
         self.state.gt7_name = self.gt7.value.strip()
-        await interaction.response.edit_message(
-            content=(
-                f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
-                f"In welchem Team fährst Du? (Freitext, wir suchen dann das passende Team)"
-            ),
-            view=TeamInputView(self.state, self.news_message)
-        )
+        # Kuerzel aus Discord-Nick, PSN und GT7-Nick extrahieren und Teams vorschlagen
+        abbr_matches = []
+        for nick_field in [self.state.discord_name, self.state.psn_name, self.state.gt7_name]:
+            abbr = _extract_abbreviation(nick_field or "")
+            if abbr:
+                abbr_matches = _find_teams_by_abbreviation(abbr)
+                if abbr_matches:
+                    break
+
+        if abbr_matches:
+            if len(abbr_matches) == 1:
+                await interaction.response.edit_message(
+                    content=(
+                        f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
+                        f"Wir haben anhand Deines Nicknames das Team **{abbr_matches[0]['name']}** gefunden. "
+                        f"Ist das Dein Team?"
+                    ),
+                    view=TeamConfirmView(self.state, self.news_message, abbr_matches[0], abbr_matches[0]['name'])
+                )
+            else:
+                await interaction.response.edit_message(
+                    content=(
+                        f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
+                        f"Wir haben mehrere Teams anhand Deines Nicknames gefunden. Bitte wähle Deins:"
+                    ),
+                    view=TeamSelectView(self.state, self.news_message, abbr_matches, "")
+                )
+        else:
+            await interaction.response.edit_message(
+                content=(
+                    f"GT7-Nick gespeichert: **{self.state.gt7_name}**\n\n"
+                    f"In welchem Team fährst Du? (Freitext, wir suchen dann das passende Team)"
+                ),
+                view=TeamInputView(self.state, self.news_message)
+            )
 
 
 class Gt7NickView(discord.ui.View):
@@ -334,6 +366,53 @@ class Gt7NickView(discord.ui.View):
         await interaction.response.send_modal(Gt7Modal(self.state, self.news_message))
 
 
+
+
+def _extract_abbreviation(text: str) -> str | None:
+    """
+    Extrahiert ein 2-4 Buchstaben Kuerzel aus einem Nick.
+    Beispiele: "NFR_Badger" -> "NFR", "IRC_Roozay" -> "IRC",
+               "No Facksen Racing" -> "NFR" (Initialen)
+    """
+    if not text:
+        return None
+    import re
+    # Muster: Grossbuchstaben am Anfang gefolgt von _ oder Leerzeichen
+    m = re.match(r"^([A-Z]{2,4})[_\-\s]", text)
+    if m:
+        return m.group(1)
+    # Initialen aus mehreren Woertern (mindestens 2)
+    words = text.split()
+    if len(words) >= 2:
+        initials = "".join(w[0].upper() for w in words if w)
+        if 2 <= len(initials) <= 4:
+            return initials
+    return None
+
+
+def _find_teams_by_abbreviation(abbr: str) -> list:
+    """Sucht Teams anhand eines Kuerzels (abbreviation oder Initialen des Namens)."""
+    from db import get_connection
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT team_id, name, abbreviation FROM teams "
+                    "WHERE is_active = 1 AND parent_team_id IS NULL ORDER BY name"
+                )
+                teams = cur.fetchall()
+    except Exception as e:
+        log.error(f"Team-Kuerzel-Abfrage fehlgeschlagen: {e}")
+        return []
+
+    abbr_lower = abbr.lower()
+    matches = []
+    for t in teams:
+        db_abbr = (t["abbreviation"] or "").lower()
+        name_initials = "".join(w[0] for w in (t["name"] or "").split() if w).lower()
+        if db_abbr == abbr_lower or name_initials == abbr_lower:
+            matches.append(t)
+    return matches
 
 # ── Team-Fuzzymatching ────────────────────────────────────────────────────────
 
@@ -352,7 +431,7 @@ def _fuzzy_match_teams(query: str) -> list:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT team_id, name, abbreviation FROM teams "
-                    "WHERE is_active = 1 ORDER BY name"
+                    "WHERE is_active = 1 AND parent_team_id IS NULL ORDER BY name"
                 )
                 teams = cur.fetchall()
     except Exception as e:
@@ -865,8 +944,10 @@ async def _finish_onboarding(interaction: discord.Interaction, state: Onboarding
         except Exception as e:
             log.error(f"Team-Mitgliedschaft fehlgeschlagen: {e}")
 
-    # Onboarding-Daten ins Sheet schreiben
-    _update_sheet_onboarding(state.driver_id, effective_psn, state.gt7_name, state.start_number)
+    # Onboarding-Daten ins Sheet schreiben (in Thread, damit Interaction nicht ablaeuft)
+    import asyncio as _asyncio
+    loop = _asyncio.get_event_loop()
+    loop.run_in_executor(None, _update_sheet_onboarding, state.driver_id, effective_psn, state.gt7_name, state.start_number)
 
     lines = ["Alles gespeichert! Viel Spaß bei Deinem ersten Rennen in der RTC. 🏁\n"]
     if effective_psn:       lines.append(f"**PSN:** {effective_psn}")
@@ -951,11 +1032,118 @@ async def _post_welcome_message(bot, driver_id: int, discord_id: str, discord_na
 
 # Haupt-Resolver
 
+
+async def _check_and_handle_returning_driver(driver: dict, discord_id: str, nickname: str, orga_notify_fn, bot):
+    """
+    Prueft ob ein bekannter Fahrer nicht im Sheet steht (Rueckkehrer).
+    Falls nicht im Sheet: ins Sheet eintragen, is_active=1, Orga-Nachricht.
+    """
+    from db import get_connection
+
+    # is_active auf 1 setzen falls noetig
+    if not driver.get("is_active"):
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE drivers SET is_active = 1 WHERE driver_id = %s",
+                        (driver["driver_id"],)
+                    )
+                    conn.commit()
+            driver["is_active"] = 1
+            log.info(f"is_active=1 gesetzt fuer driver_id={driver['driver_id']}")
+        except Exception as e:
+            log.error(f"is_active-Update fehlgeschlagen: {e}")
+
+    # Pruefen ob im Sheet vorhanden
+    sheet_entry = _find_in_sheet_by_nick(driver.get("discord_name") or nickname)
+    if sheet_entry:
+        # Im Sheet vorhanden - Discord-ID nachtragen falls fehlend
+        if not sheet_entry.get("discord_id"):
+            _update_sheet_discord_id(sheet_entry["row_index"], discord_id)
+        return  # Alles ok, kein Rueckkehrer-Flow noetig
+
+    # Nicht im Sheet - Rueckkehrer!
+    log.info(f"Rueckkehrer erkannt: {driver.get('psn_name')} - trage ins Sheet ein.")
+    psn = driver.get("psn_name") or nickname
+    gt7 = driver.get("gt7_name") or ""
+    rating = driver.get("current_rating")
+
+    # Ins Sheet eintragen
+    try:
+        loop = __import__("asyncio").get_event_loop()
+        await loop.run_in_executor(None, _add_returning_driver_to_sheet, driver, discord_id, nickname)
+    except Exception as e:
+        log.error(f"Sheet-Eintrag Rueckkehrer fehlgeschlagen: {e}")
+
+    # Orga-Nachricht
+    orga_text = (
+        f"🔄 **Rückkehr:** **{psn}** (Discord: {nickname}) hat sich nach längerer Abwesenheit "
+        f"wieder angemeldet und wurde ins Sheet eingetragen."
+    )
+    if not rating:
+        orga_text += "\n⚠️ Kein Ranking in der DB vorhanden – bitte manuell eintragen!"
+
+    if orga_notify_fn:
+        orga_notify_fn(orga_text)
+    elif bot:
+        try:
+            chan_log = bot.get_channel(int(__import__("os").environ.get("CHAN_LOG", 0)))
+            if chan_log:
+                await chan_log.send(orga_text)
+        except Exception as e:
+            log.error(f"Rueckkehrer-Orga-Nachricht fehlgeschlagen: {e}")
+
+
+def _add_returning_driver_to_sheet(driver: dict, discord_id: str, nickname: str):
+    """Traegt einen Rueckkehrer ins Sheet ein mit allen verfuegbaren DB-Daten."""
+    try:
+        ws = _get_drvr_worksheet()
+        records = ws.get_all_values()
+        total_cols = len(records[HEADER_ROW]) if records else 110
+
+        # Erste leere Zeile finden
+        next_row = None
+        for i in range(HEADER_ROW + 1, len(records)):
+            row = records[i]
+            psn  = row[COL_PSN].strip()  if len(row) > COL_PSN  else ""
+            nick = row[COL_NICK].strip() if len(row) > COL_NICK else ""
+            if not psn and not nick:
+                next_row = i + 1
+                break
+        if next_row is None:
+            next_row = len(records) + 1
+
+        psn_name     = driver.get("psn_name") or nickname
+        discord_name = driver.get("discord_name") or nickname
+        gt7_name     = driver.get("gt7_name") or ""
+        start_number = driver.get("start_number") or ""
+        rating       = driver.get("current_rating")
+
+        updates = [
+            {"range": gspread.utils.rowcol_to_a1(next_row, COL_PSN + 1),  "values": [[psn_name]]},
+            {"range": gspread.utils.rowcol_to_a1(next_row, COL_NICK + 1), "values": [[discord_name]]},
+            {"range": gspread.utils.rowcol_to_a1(next_row, total_cols),   "values": [[discord_id]]},
+        ]
+        if gt7_name:
+            updates.append({"range": gspread.utils.rowcol_to_a1(next_row, total_cols - 1), "values": [[gt7_name]]})
+        if start_number:
+            updates.append({"range": gspread.utils.rowcol_to_a1(next_row, 7), "values": [[str(start_number)]]})
+        if rating:
+            # Spalte D (Index 3, gspread 4) = akt. Ranking
+            updates.append({"range": gspread.utils.rowcol_to_a1(next_row, 4), "values": [[f"{rating:.2f}%".replace(".", ",")]]})
+
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
+        log.info(f"Rueckkehrer '{psn_name}' in Sheet Zeile {next_row} eingetragen.")
+    except Exception as e:
+        log.error(f"Sheet-Eintrag Rueckkehrer fehlgeschlagen: {e}")
+
 async def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bot=None):
     # 1. DB: Discord-ID
     driver = get_driver_by_discord_id(discord_id)
     if driver:
         log.debug(f"Fahrer per Discord-ID gefunden: {driver['psn_name']}")
+        await _check_and_handle_returning_driver(driver, discord_id, nickname, orga_notify_fn, bot)
         return driver
 
     # 2. DB: Nickname
@@ -963,10 +1151,8 @@ async def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bo
     if driver:
         log.info(f"Fahrer per Nickname gefunden: {driver['psn_name']} - trage Discord-ID nach.")
         update_driver_discord_id(driver["driver_id"], discord_id)
-        sheet_entry = _find_in_sheet_by_nick(nickname)
-        if sheet_entry and not sheet_entry.get("discord_id"):
-            _update_sheet_discord_id(sheet_entry["row_index"], discord_id)
         driver["discord_id"] = discord_id
+        await _check_and_handle_returning_driver(driver, discord_id, nickname, orga_notify_fn, bot)
         return driver
 
     # 2b. Sync + nochmal suchen (in Thread, damit asyncio nicht blockiert)
@@ -1008,7 +1194,7 @@ async def resolve_driver(discord_id: str, nickname: str, orga_notify_fn=None, bo
 
     # 4. Komplett neu anlegen
     log.warning(f"Neuer unbekannter Fahrer: {nickname} ({discord_id}) - lege automatisch an.")
-    driver_id = create_driver(discord_id, nickname, psn_name=nickname)
+    driver_id = create_driver(discord_id, nickname)
     _add_driver_to_sheet(discord_id, nickname)
     driver = get_driver_by_discord_id(discord_id)
 
